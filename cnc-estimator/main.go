@@ -1,87 +1,55 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+
+	"smetchic/calculator"
+	"smetchic/model"
+	"smetchic/output"
+	"smetchic/parser"
+	"smetchic/planner"
+)
 
 func main() {
+	if err := run(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
 
-	machine := Machine{
-		ID:           "dekart-s4040",
-		Name:         "DeKart S4040",
-		WorkX:        400,
-		WorkY:        400,
-		WorkZ:        200,
-		SpindlePower: 1.5,
-		MaxRPM:       24000,
-		MaxFeed:      5000,
-		HourlyRate:   2500,
+func run(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("Usage:\ngo run main.go <path-to-part-file>")
 	}
 
-	tool := Tool{
-		ID:       "endmill-8",
-		Name:     "Концевая фреза",
-		Diameter: 8,
-		Teeth:    2,
-		MaxRPM:   24000,
+	part, err := parser.ParseFile(args[0])
+	if err != nil {
+		return err
 	}
 
-	operation := Operation{
-		Name: "Черновая обработка полости",
-
-		Tool: tool,
-
-		Width:  200,
-		Length: 200,
-		Depth:  20,
-
-		Feed:     1200,
-		StepDown: 2,
-		StepOver: 4,
+	machine := model.Machine{
+		Name:       "DeKart S4040",
+		HourlyRate: 1500,
+		MaxFeed:    5000,
 	}
 
-	result := CalculatePocket(
-		operation,
-		machine.HourlyRate,
-	)
+	operations, err := planner.BuildOperations(part, machine)
+	if err != nil {
+		return err
+	}
+	totalMachineTime := calculator.CalculateOperationTimes(operations)
+	machineCost, totalCost, suggestedPrice := calculator.CalculateCosts(totalMachineTime, machine)
 
-	fmt.Println("=== CNC ESTIMATOR ===")
-	fmt.Println()
-
-	fmt.Printf("Станок: %s\n", machine.Name)
-	fmt.Printf("Фреза: Ø%.1f мм\n", tool.Diameter)
-	fmt.Println()
-
-	fmt.Println("ПОЛОСТЬ")
-	fmt.Printf(
-		"Размер: %.0f × %.0f × %.0f мм\n",
-		operation.Width,
-		operation.Length,
-		operation.Depth,
-	)
-
-	fmt.Println()
-
-	fmt.Println("ПАРАМЕТРЫ")
-	fmt.Printf("Подача: %.0f мм/мин\n", operation.Feed)
-	fmt.Printf("Stepdown: %.1f мм\n", operation.StepDown)
-	fmt.Printf("Stepover: %.1f мм\n", operation.StepOver)
-
-	fmt.Println()
-
-	fmt.Println("РАСЧЁТ")
-	fmt.Printf("Проходов по Z: %d\n", result.PassesZ)
-	fmt.Printf("Проходов по XY: %d\n", result.PassesXY)
-	fmt.Printf(
-		"Длина траектории: %.0f мм\n",
-		result.CuttingLength,
-	)
-
-	fmt.Printf(
-		"Время резания: %.2f мин\n",
-		result.TimeMinutes,
-	)
-
-	fmt.Printf(
-		"Стоимость резания: %.2f ₽\n",
-		result.Cost,
-	)
+	estimate := model.Estimate{
+		Part:             part,
+		Operations:       operations,
+		TotalMachineTime: totalMachineTime,
+		MachineCost:      machineCost,
+		TotalCost:        totalCost,
+		SuggestedPrice:   suggestedPrice,
+		Machine:          machine,
+	}
+	output.PrintEstimate(estimate)
+	return nil
 }

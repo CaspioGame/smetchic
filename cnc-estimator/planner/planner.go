@@ -1,0 +1,108 @@
+package planner
+
+import (
+	"fmt"
+	"math"
+	"strings"
+
+	"smetchic/model"
+)
+
+func BuildOperations(part model.Part, machine model.Machine) ([]model.Operation, error) {
+	operations := make([]model.Operation, 0)
+	addOperation := func(feature model.Feature, name, strategy string, tool model.Tool, feed, rpm, testLength float64) {
+		operations = append(operations, model.Operation{
+			ID:                      fmt.Sprintf("operation-%02d", len(operations)+1),
+			FeatureID:               feature.ID,
+			Name:                    name,
+			Strategy:                strategy,
+			Machine:                 machine,
+			Tool:                    tool,
+			Feed:                    feed,
+			RPM:                     rpm,
+			EstimatedToolpathLength: testLength,
+		})
+	}
+
+	endMill := model.Tool{Name: "End mill", Diameter: 10, MaxRPM: 6000}
+	drill := model.Tool{Name: "Drill", Diameter: 10, MaxRPM: 5000}
+	chamferTool := model.Tool{Name: "Chamfer mill", Diameter: 6, MaxRPM: 5000}
+
+	for _, feature := range part.Features {
+		if err := validateFeature(feature); err != nil {
+			return nil, err
+		}
+
+		switch feature.Type {
+		case model.FeaturePocket:
+			addOperation(feature, "Roughing", "Roughing", endMill, 1000, 3000, 600)
+			addOperation(feature, "Finishing", "Finishing", endMill, 800, 3000, 240)
+		case model.FeatureHole:
+			holeTool := drill
+			holeTool.Diameter = feature.Diameter
+			addOperation(feature, "Drilling", "Drilling", holeTool, 500, 2500, 60)
+		case model.FeatureContour:
+			addOperation(feature, "Roughing", "Roughing", endMill, 900, 3000, 500)
+			addOperation(feature, "Finishing", "Finishing", endMill, 700, 3000, 200)
+		case model.FeatureChamfer:
+			addOperation(feature, "Chamfering", "Chamfering", chamferTool, 600, 2500, 120)
+		default:
+			return nil, fmt.Errorf("planner не поддерживает feature %q типа %q", feature.ID, feature.Type)
+		}
+	}
+	return operations, nil
+}
+
+func validateFeature(feature model.Feature) error {
+	if strings.TrimSpace(feature.ID) == "" {
+		return fmt.Errorf("planner: у feature типа %q не указан ID", feature.Type)
+	}
+
+	var requiredDimensions []struct {
+		name  string
+		value float64
+	}
+	switch feature.Type {
+	case model.FeaturePocket:
+		requiredDimensions = []struct {
+			name  string
+			value float64
+		}{{"width", feature.Width}, {"length", feature.Length}, {"depth", feature.Depth}}
+	case model.FeatureHole:
+		requiredDimensions = []struct {
+			name  string
+			value float64
+		}{{"diameter", feature.Diameter}, {"depth", feature.Depth}}
+	case model.FeatureContour:
+		requiredDimensions = []struct {
+			name  string
+			value float64
+		}{{"width", feature.Width}, {"length", feature.Length}, {"depth", feature.Depth}}
+	case model.FeatureChamfer:
+		requiredDimensions = []struct {
+			name  string
+			value float64
+		}{{"chamfer_size", feature.ChamferSize}}
+	default:
+		return fmt.Errorf("planner: неизвестный тип feature %q (ID %q)", feature.Type, feature.ID)
+	}
+
+	for _, dimension := range requiredDimensions {
+		if math.IsNaN(dimension.value) || math.IsInf(dimension.value, 0) || dimension.value <= 0 {
+			return fmt.Errorf("planner: feature %q типа %q требует %s больше нуля", feature.ID, feature.Type, dimension.name)
+		}
+	}
+	for _, optional := range []struct {
+		name  string
+		value float64
+	}{
+		{"x", feature.PositionX},
+		{"y", feature.PositionY},
+		{"tolerance", feature.Tolerance},
+	} {
+		if math.IsNaN(optional.value) || math.IsInf(optional.value, 0) || optional.value < 0 {
+			return fmt.Errorf("planner: feature %q имеет некорректный параметр %s", feature.ID, optional.name)
+		}
+	}
+	return nil
+}

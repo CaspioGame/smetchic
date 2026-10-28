@@ -1,0 +1,42 @@
+[part]
+material=aluminum
+stock_width=120
+stock_length=100
+stock_height=40
+
+[feature pocket-1]
+type=pocket
+x=10
+y=10
+width=40
+length=40
+depth=20
+tolerance=0.1
+
+[feature pocket-2]
+type=pocket
+x=65
+y=10
+width=40
+length=40
+depth=20
+
+[feature hole-1]
+type=hole
+x=30
+y=75
+diameter=10
+depth=30
+
+[feature hole-2]
+type=hole
+x=90
+y=75
+diameter=10
+depth=30
+
+[feature contour-1]
+type=contour
+width=120
+length=100
+depth=2

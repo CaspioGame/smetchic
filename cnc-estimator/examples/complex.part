@@ -1,0 +1,31 @@
+[part]
+material=aluminum
+stock_width=150
+stock_length=120
+stock_height=60
+
+[feature pocket-1]
+type=pocket
+x=15
+y=15
+width=50
+length=40
+depth=25
+
+[feature hole-1]
+type=hole
+x=75
+y=60
+diameter=12
+depth=35
+
+[feature contour-1]
+type=contour
+width=150
+length=120
+depth=3
+
+[feature chamfer-1]
+type=chamfer
+chamfer_size=1.5
+tolerance=0.1
