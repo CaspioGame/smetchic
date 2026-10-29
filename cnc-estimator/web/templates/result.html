@@ -1,0 +1,118 @@
+{{define "result.html"}}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Результат — CNC Estimator</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #172033; background: #f3f5f8; }
+    body { margin: 0; }
+    main { max-width: 1120px; margin: 36px auto; padding: 0 24px 48px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 1.8rem; }
+    h2 { margin: 0 0 16px; font-size: 1.2rem; }
+    section { margin: 16px 0; padding: 24px; border: 1px solid #e0e5ec; border-radius: 12px; background: #fff; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
+    .label { display: block; margin-bottom: 4px; color: #697386; font-size: .85rem; }
+    .value { font-weight: 650; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 11px 10px; border-bottom: 1px solid #e8ebf0; text-align: left; vertical-align: top; }
+    th { color: #596477; font-size: .85rem; }
+    .table-wrap { overflow-x: auto; }
+    .notice { margin-bottom: 20px; padding: 14px 16px; border-radius: 8px; background: #fff5e8; color: #754300; line-height: 1.5; }
+    .button { display: inline-block; padding: 10px 16px; border-radius: 8px; background: #2457d6; color: #fff; font-weight: 700; text-decoration: none; }
+    .button:hover { background: #1948bd; }
+    .summary { font-size: 1.1rem; }
+    .muted { color: #697386; font-size: .9rem; }
+    @media (max-width: 700px) { main { margin-top: 20px; } header { align-items: flex-start; flex-direction: column; } section { padding: 18px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>CNC Estimator</h1>
+        <p class="muted">Результат предварительного демонстрационного расчёта</p>
+      </div>
+      <a class="button" href="/">Новый расчёт</a>
+    </header>
+    <div class="notice"><strong>Важно:</strong> расчёт использует тестовые параметры и оценочную длину траектории. Это не точный CAM-расчёт и не коммерческое предложение.</div>
+
+    <section>
+      <h2>PART</h2>
+      <div class="grid">
+        <div><span class="label">Файл</span><span class="value">{{.Estimate.Part.SourceFile}}</span></div>
+        <div><span class="label">Material</span><span class="value">{{.Estimate.Part.Material}}</span></div>
+        <div><span class="label">Stock Width</span><span class="value">{{printf "%.2f mm" .Estimate.Part.Stock.Width}}</span></div>
+        <div><span class="label">Stock Length</span><span class="value">{{printf "%.2f mm" .Estimate.Part.Stock.Length}}</span></div>
+        <div><span class="label">Stock Height</span><span class="value">{{printf "%.2f mm" .Estimate.Part.Stock.Height}}</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>FEATURES</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>Type</th><th>Размеры / глубина</th><th>Координаты</th></tr></thead>
+          <tbody>
+            {{range .Features}}
+            <tr><td>{{.ID}}</td><td>{{.Type}}</td><td>{{.Dimensions}}</td><td>{{.Coordinates}}</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>MACHINE</h2>
+      <div class="grid">
+        <div><span class="label">Name</span><span class="value">{{.Estimate.Machine.Name}}</span></div>
+        <div><span class="label">Hourly Rate</span><span class="value">{{printf "%.2f" .Estimate.Machine.HourlyRate}} ₽/hour</span></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>OPERATIONS</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Operation</th><th>Feature</th><th>Strategy</th><th>Tool</th><th>Feed</th><th>RPM</th><th>Depth</th><th>StepDown</th><th>StepOver</th><th>Estimated/test toolpath length</th><th>Time</th></tr>
+          </thead>
+          <tbody>
+            {{range .Operations}}
+            <tr>
+              <td>{{.Operation.Name}}</td><td>{{.FeatureName}}</td><td>{{.Operation.Strategy}}</td>
+              <td>{{.Operation.Tool.Name}} Ø{{printf "%.2f" .Operation.Tool.Diameter}} mm</td>
+              <td>{{printf "%.0f mm/min" .Operation.CuttingParameters.Feed}}</td>
+              <td>{{printf "%.0f" .Operation.CuttingParameters.RPM}}</td>
+              <td>{{printf "%.2f mm" .Operation.CuttingParameters.Depth}}</td>
+              <td>{{printf "%.2f mm" .Operation.CuttingParameters.StepDown}}</td>
+              <td>{{printf "%.2f mm" .Operation.CuttingParameters.StepOver}}</td>
+              <td>{{printf "%.2f mm (estimated/test)" .Operation.EstimatedToolpathLength}}</td>
+              <td>{{printf "%.2f min" .Operation.TimeMinutes}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>TIME</h2>
+      <p class="summary">Total machine time: <strong>{{printf "%.2f min" .Estimate.TotalMachineTime}}</strong></p>
+      <p class="muted">Оценка времени основана на тестовой длине траектории и подаче.</p>
+    </section>
+    <section>
+      <h2>COST</h2>
+      <p class="summary">Machine cost: <strong>{{printf "%.2f ₽" .Estimate.MachineCost}}</strong></p>
+    </section>
+    <section>
+      <h2>ESTIMATE</h2>
+      <p class="summary">Suggested price (demo markup): <strong>{{printf "%.2f ₽" .Estimate.SuggestedPrice}}</strong></p>
+      <p class="muted">Не является реальной ценой заказа или коммерческим предложением.</p>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

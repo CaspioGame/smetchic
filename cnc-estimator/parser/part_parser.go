@@ -3,6 +3,7 @@ package parser
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -25,6 +26,11 @@ func ParseFile(filename string) (model.Part, error) {
 	}
 	defer file.Close()
 
+	return Parse(file, filename)
+}
+
+func Parse(reader io.Reader, sourceName string) (model.Part, error) {
+	filename := sourceName
 	part := model.Part{SourceFile: filepath.Base(filename)}
 	partValues := make(map[string]string)
 	partValueLines := make(map[string]int)
@@ -32,7 +38,7 @@ func ParseFile(filename string) (model.Part, error) {
 	var currentFeature *rawFeature
 	currentSection := ""
 	partSectionSeen := false
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(reader)
 	lineNumber := 0
 
 	for scanner.Scan() {
@@ -120,6 +126,7 @@ func ParseFile(filename string) (model.Part, error) {
 	if part.Material == "" {
 		return model.Part{}, fmt.Errorf("%s: не указан material", filename)
 	}
+	var err error
 	part.Stock.Width, err = requiredDimension(filename, partValues, partValueLines, "stock_width")
 	if err != nil {
 		return model.Part{}, err

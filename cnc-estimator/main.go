@@ -2,13 +2,15 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 
-	"smetchic/calculator"
+	"smetchic/estimator"
 	"smetchic/model"
 	"smetchic/output"
 	"smetchic/parser"
-	"smetchic/planner"
+	"smetchic/web"
 )
 
 func main() {
@@ -19,8 +21,23 @@ func main() {
 }
 
 func run(args []string) error {
+	machine := model.Machine{
+		Name:       "DeKart S4040",
+		HourlyRate: 1500,
+		MaxFeed:    5000,
+	}
+
+	if len(args) == 0 {
+		handler, err := web.NewHandler(machine)
+		if err != nil {
+			return fmt.Errorf("не удалось подготовить Web-интерфейс: %w", err)
+		}
+		address := "127.0.0.1:8080"
+		log.Printf("CNC Estimator доступен по адресу http://localhost:8080")
+		return http.ListenAndServe(address, handler)
+	}
 	if len(args) != 1 {
-		return fmt.Errorf("Usage:\ngo run main.go <path-to-part-file>")
+		return fmt.Errorf("Использование:\n  go run .                 запустить Web-интерфейс\n  go run main.go <file.part>  выполнить расчёт в CLI")
 	}
 
 	part, err := parser.ParseFile(args[0])
@@ -28,27 +45,9 @@ func run(args []string) error {
 		return err
 	}
 
-	machine := model.Machine{
-		Name:       "DeKart S4040",
-		HourlyRate: 1500,
-		MaxFeed:    5000,
-	}
-
-	operations, err := planner.BuildOperations(part, machine)
+	estimate, err := estimator.Calculate(part, machine)
 	if err != nil {
 		return err
-	}
-	totalMachineTime := calculator.CalculateOperationTimes(operations)
-	machineCost, totalCost, suggestedPrice := calculator.CalculateCosts(totalMachineTime, machine)
-
-	estimate := model.Estimate{
-		Part:             part,
-		Operations:       operations,
-		TotalMachineTime: totalMachineTime,
-		MachineCost:      machineCost,
-		TotalCost:        totalCost,
-		SuggestedPrice:   suggestedPrice,
-		Machine:          machine,
 	}
 	output.PrintEstimate(estimate)
 	return nil
