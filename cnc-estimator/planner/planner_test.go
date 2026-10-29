@@ -63,4 +63,25 @@ func TestBuildOperationsLeavesTimeCalculationToCalculator(t *testing.T) {
 			t.Errorf("operation %q has TimeMinutes %v before time calculation", operation.ID, operation.TimeMinutes)
 		}
 	}
+
+	pocketRoughing := operations[0]
+	if pocketRoughing.Tool.Name != "End mill" || pocketRoughing.Tool.Diameter != 10 {
+		t.Errorf("pocket roughing tool = %+v, want End mill Ø10", pocketRoughing.Tool)
+	}
+	if pocketRoughing.CuttingParameters.Depth != 20 ||
+		pocketRoughing.CuttingParameters.StepDown <= 0 ||
+		pocketRoughing.CuttingParameters.StepOver <= 0 {
+		t.Errorf("pocket roughing cutting parameters = %+v, want depth and positive step values", pocketRoughing.CuttingParameters)
+	}
+
+	drilling := operations[2]
+	if drilling.Tool.Name != "Drill" || drilling.Tool.Diameter != 10 ||
+		drilling.CuttingParameters.Depth != 30 {
+		t.Errorf("drilling operation = %+v, want Drill Ø10 at depth 30", drilling)
+	}
+
+	chamfering := operations[5]
+	if chamfering.CuttingParameters.Depth != 1 {
+		t.Errorf("chamfer depth = %v, want chamfer size 1", chamfering.CuttingParameters.Depth)
+	}
 }

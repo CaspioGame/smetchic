@@ -36,7 +36,9 @@ func PrintEstimate(estimate model.Estimate) {
 		fmt.Printf("%d. %s — %s\n", i+1, featureNames[operation.FeatureID], operation.Name)
 		fmt.Printf("   ID: %s | FeatureID: %s | Strategy: %s\n", operation.ID, operation.FeatureID, operation.Strategy)
 		fmt.Printf("   Machine: %s | Tool: %s Ø%.0f mm\n", operation.Machine.Name, operation.Tool.Name, operation.Tool.Diameter)
-		fmt.Printf("   Feed: %.0f mm/min | RPM: %.0f\n", operation.Feed, operation.RPM)
+		fmt.Printf("   Feed: %.0f mm/min | RPM: %.0f\n", operation.CuttingParameters.Feed, operation.CuttingParameters.RPM)
+		fmt.Printf("   Depth: %.2f mm | StepDown: %.2f mm | StepOver: %.2f mm\n",
+			operation.CuttingParameters.Depth, operation.CuttingParameters.StepDown, operation.CuttingParameters.StepOver)
 		fmt.Printf("   Estimated/test toolpath length: %.0f mm\n", operation.EstimatedToolpathLength)
 	}
 

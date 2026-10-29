@@ -10,7 +10,7 @@ import (
 
 func BuildOperations(part model.Part, machine model.Machine) ([]model.Operation, error) {
 	operations := make([]model.Operation, 0)
-	addOperation := func(feature model.Feature, name, strategy string, tool model.Tool, feed, rpm, testLength float64) {
+	addOperation := func(feature model.Feature, name, strategy string, tool model.Tool, parameters model.CuttingParameters, testLength float64) {
 		operations = append(operations, model.Operation{
 			ID:                      fmt.Sprintf("operation-%02d", len(operations)+1),
 			FeatureID:               feature.ID,
@@ -18,8 +18,7 @@ func BuildOperations(part model.Part, machine model.Machine) ([]model.Operation,
 			Strategy:                strategy,
 			Machine:                 machine,
 			Tool:                    tool,
-			Feed:                    feed,
-			RPM:                     rpm,
+			CuttingParameters:       parameters,
 			EstimatedToolpathLength: testLength,
 		})
 	}
@@ -35,17 +34,29 @@ func BuildOperations(part model.Part, machine model.Machine) ([]model.Operation,
 
 		switch feature.Type {
 		case model.FeaturePocket:
-			addOperation(feature, "Roughing", "Roughing", endMill, 1000, 3000, 600)
-			addOperation(feature, "Finishing", "Finishing", endMill, 800, 3000, 240)
+			addOperation(feature, "Roughing", "Roughing", endMill, model.CuttingParameters{
+				Feed: 1000, RPM: 3000, Depth: feature.Depth, StepDown: 5, StepOver: 5,
+			}, 600)
+			addOperation(feature, "Finishing", "Finishing", endMill, model.CuttingParameters{
+				Feed: 800, RPM: 3000, Depth: feature.Depth, StepDown: 1, StepOver: 1,
+			}, 240)
 		case model.FeatureHole:
 			holeTool := drill
 			holeTool.Diameter = feature.Diameter
-			addOperation(feature, "Drilling", "Drilling", holeTool, 500, 2500, 60)
+			addOperation(feature, "Drilling", "Drilling", holeTool, model.CuttingParameters{
+				Feed: 500, RPM: 2500, Depth: feature.Depth,
+			}, 60)
 		case model.FeatureContour:
-			addOperation(feature, "Roughing", "Roughing", endMill, 900, 3000, 500)
-			addOperation(feature, "Finishing", "Finishing", endMill, 700, 3000, 200)
+			addOperation(feature, "Roughing", "Roughing", endMill, model.CuttingParameters{
+				Feed: 900, RPM: 3000, Depth: feature.Depth, StepDown: 3, StepOver: 5,
+			}, 500)
+			addOperation(feature, "Finishing", "Finishing", endMill, model.CuttingParameters{
+				Feed: 700, RPM: 3000, Depth: feature.Depth, StepDown: 1, StepOver: 1,
+			}, 200)
 		case model.FeatureChamfer:
-			addOperation(feature, "Chamfering", "Chamfering", chamferTool, 600, 2500, 120)
+			addOperation(feature, "Chamfering", "Chamfering", chamferTool, model.CuttingParameters{
+				Feed: 600, RPM: 2500, Depth: feature.ChamferSize,
+			}, 120)
 		default:
 			return nil, fmt.Errorf("planner не поддерживает feature %q типа %q", feature.ID, feature.Type)
 		}

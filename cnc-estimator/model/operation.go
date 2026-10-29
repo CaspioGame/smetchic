@@ -7,8 +7,15 @@ type Operation struct {
 	Strategy                string
 	Machine                 Machine
 	Tool                    Tool
-	Feed                    float64
-	RPM                     float64
+	CuttingParameters       CuttingParameters
 	EstimatedToolpathLength float64
 	TimeMinutes             float64
+}
+
+type CuttingParameters struct {
+	Feed     float64
+	RPM      float64
+	Depth    float64
+	StepDown float64
+	StepOver float64
 }
