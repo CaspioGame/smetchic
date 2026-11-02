@@ -1,0 +1,70 @@
+{{define "stock-blank-form.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body><div class="app">
+  {{template "sidebar" .}}
+  <main class="content">
+    <h1>{{.Title}}</h1>
+    {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+    {{if not .Materials}}<div class="notice warning">Сначала добавьте материал в разделе «Материалы».</div>{{end}}
+    <section class="card">
+      <form method="POST" action="/stock-blanks/save">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="id" value="{{.Form.ID}}">
+        <label for="name">Название заготовки</label><input id="name" name="name" value="{{.Form.Name}}" required>
+        <label for="material_id">Материал</label>
+        <select id="material_id" name="material_id" required>
+          <option value="">Выберите материал</option>
+          {{range .Materials}}<option value="{{.ID}}" {{if eq .ID $.Form.MaterialID}}selected{{end}}>{{.Name}} — {{.Grade}} ({{.Currency}})</option>{{end}}
+        </select>
+        <div class="grid">
+          <div>
+            <label for="shape">Форма</label>
+            <select id="shape" name="shape" required>
+              <option value="rectangular" {{if eq .Form.Shape "rectangular"}}selected{{end}}>Прямоугольная</option>
+              <option value="round" {{if eq .Form.Shape "round"}}selected{{end}}>Круглая</option>
+            </select>
+          </div>
+          <div><label for="currency">Валюта цены заготовки</label><input id="currency" name="currency" value="{{.Form.Currency}}" required></div>
+        </div>
+        <fieldset id="rectangular-fields">
+          <legend>Размеры прямоугольной заготовки, мм</legend>
+          <div class="grid">
+            <div><label for="length-rect">Длина</label><input id="length-rect" name="length" type="number" min="0.000001" step="any" value="{{.Form.Length}}"></div>
+            <div><label for="width">Ширина</label><input id="width" name="width" type="number" min="0.000001" step="any" value="{{.Form.Width}}"></div>
+            <div><label for="height">Высота</label><input id="height" name="height" type="number" min="0.000001" step="any" value="{{.Form.Height}}"></div>
+          </div>
+        </fieldset>
+        <fieldset id="round-fields">
+          <legend>Размеры круглой заготовки, мм</legend>
+          <div class="grid">
+            <div><label for="diameter">Диаметр</label><input id="diameter" name="diameter" type="number" min="0.000001" step="any" value="{{.Form.Diameter}}"></div>
+            <div><label for="length-round">Длина</label><input id="length-round" name="length_round" type="number" min="0.000001" step="any" value="{{.Form.Length}}"></div>
+          </div>
+        </fieldset>
+        <label for="price_per_piece">Цена за штуку (необязательно; оставьте пустой для расчёта по массе)</label>
+        <input id="price_per_piece" name="price_per_piece" type="number" min="0" step="any" value="{{if ne .Form.PricePerPiece "0"}}{{.Form.PricePerPiece}}{{end}}">
+        <p><button type="submit" {{if not .Materials}}disabled{{end}}>Сохранить</button><a class="button secondary" href="/stock-blanks">Отмена</a></p>
+      </form>
+    </section>
+  </main>
+</div>
+<script>
+  const shape = document.getElementById("shape");
+  const rectangularFields = document.getElementById("rectangular-fields");
+  const roundFields = document.getElementById("round-fields");
+  const rectangularInputs = rectangularFields.querySelectorAll("input");
+  const roundInputs = roundFields.querySelectorAll("input");
+  function updateShapeFields() {
+    const rectangular = shape.value === "rectangular";
+    rectangularFields.hidden = !rectangular;
+    roundFields.hidden = rectangular;
+    rectangularInputs.forEach((input) => { input.disabled = !rectangular; });
+    roundInputs.forEach((input) => { input.disabled = rectangular; });
+  }
+  shape.addEventListener("change", updateShapeFields);
+  updateShapeFields();
+</script>
+</body></html>
+{{end}}

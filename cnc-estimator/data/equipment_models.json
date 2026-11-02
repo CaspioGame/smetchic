@@ -1,0 +1,14 @@
+[
+  {
+    "ID": "dekart-s4040",
+    "Type": "milling",
+    "Manufacturer": "DeKart",
+    "Model": "S4040",
+    "WorkAreaX": 0,
+    "WorkAreaY": 0,
+    "WorkAreaZ": 0,
+    "MaxRPM": 0,
+    "SpindlePower": 0,
+    "MaxFeed": 5000
+  }
+]

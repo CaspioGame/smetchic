@@ -1,0 +1,50 @@
+[
+  {
+    "ID": "dekart-s4040",
+    "CompanyID": "demo-company",
+    "EquipmentModelID": "dekart-s4040",
+    "Name": "DeKart S4040",
+    "InventoryNumber": "1",
+    "SerialNumber": "1",
+    "Status": "active",
+    "MachineRatePerHour": 2500,
+    "CreatedAt": "2026-11-02T14:59:17.6437953Z",
+    "UpdatedAt": "2026-11-02T15:00:12.8337652Z",
+    "EquipmentModel": {
+      "ID": "",
+      "Type": "",
+      "Manufacturer": "",
+      "Model": "",
+      "WorkAreaX": 0,
+      "WorkAreaY": 0,
+      "WorkAreaZ": 0,
+      "MaxRPM": 0,
+      "SpindlePower": 0,
+      "MaxFeed": 0
+    }
+  },
+  {
+    "ID": "equipment-0b52d831c6c904ad987f811f",
+    "CompanyID": "demo-company",
+    "EquipmentModelID": "dekart-s4040",
+    "Name": "123",
+    "InventoryNumber": "цйу",
+    "SerialNumber": "321",
+    "Status": "active",
+    "MachineRatePerHour": 1500,
+    "CreatedAt": "2026-11-02T15:00:24.6499028Z",
+    "UpdatedAt": "2026-11-02T15:00:24.6499028Z",
+    "EquipmentModel": {
+      "ID": "",
+      "Type": "",
+      "Manufacturer": "",
+      "Model": "",
+      "WorkAreaX": 0,
+      "WorkAreaY": 0,
+      "WorkAreaZ": 0,
+      "MaxRPM": 0,
+      "SpindlePower": 0,
+      "MaxFeed": 0
+    }
+  }
+]

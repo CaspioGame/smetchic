@@ -1,0 +1,25 @@
+{{define "company.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body><div class="app">
+  {{template "sidebar" .}}
+  <main class="content">
+    <h1>Компания и настройки</h1>
+    {{if .Flash}}<div class="notice">{{.Flash}}</div>{{end}}
+    {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+    <section class="card">
+      <form method="POST" action="/company/save">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <label for="name">Название компании</label>
+        <input id="name" name="name" value="{{.Company.Name}}" required>
+        <div class="grid">
+          <div><label for="currency">Валюта</label><input id="currency" name="currency" value="{{.Settings.Currency}}" required></div>
+          <div><label for="default_markup_percent">Наценка по умолчанию, %</label><input id="default_markup_percent" name="default_markup_percent" type="number" min="0" step="any" value="{{printf "%g" .Settings.DefaultMarkupPercent}}" required></div>
+        </div>
+        <p><button type="submit">Сохранить настройки</button></p>
+      </form>
+    </section>
+  </main>
+</div></body></html>
+{{end}}

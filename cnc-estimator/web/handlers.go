@@ -12,6 +12,7 @@ import (
 	"smetchic/estimator"
 	"smetchic/model"
 	"smetchic/parser"
+	"smetchic/storage"
 )
 
 const (
@@ -19,14 +20,23 @@ const (
 	memoryFormSize = 1 << 20
 )
 
+type pageBase struct {
+	Title  string
+	Active string
+	CSRF   string
+	Flash  string
+	Error  string
+}
+
 type indexPage struct {
-	Error             string
+	pageBase
 	SelectedEquipment string
 	MarkupPercent     string
 	Equipment         []model.Equipment
 }
 
 type resultPage struct {
+	pageBase
 	Estimate          model.Estimate
 	EquipmentTypeName string
 	Features          []featureRow
@@ -46,6 +56,10 @@ type operationRow struct {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.store != nil {
+		s.serveCabinet(w, r)
+		return
+	}
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -78,13 +92,16 @@ func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	form := indexPage{
+		pageBase: pageBase{
+			Title: "Расчёт сметы", Active: "estimate", CSRF: s.csrfToken,
+		},
 		SelectedEquipment: r.FormValue("equipment_id"),
 		MarkupPercent:     r.FormValue("markup_percent"),
-		Equipment:         s.catalog.List(),
+		Equipment:         s.equipmentList(),
 	}
 	equipmentItem, settings, err := s.parseEstimateSettings(form)
 	if err != nil {
-		form.Error = err.Error()
+		form.Error = friendlyError(err)
 		s.render(w, "index.html", http.StatusBadRequest, form)
 		return
 	}
@@ -121,10 +138,25 @@ func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) defaultIndexPage() indexPage {
+	equipmentItems := s.equipmentList()
+	equipmentID := s.defaultSettings.EquipmentID
+	markup := s.defaultSettings.MarkupPercent
+	if s.store != nil {
+		if snapshot, err := s.store.Snapshot(s.companyID); err == nil {
+			markup = snapshot.Settings.DefaultMarkupPercent
+			for _, item := range equipmentItems {
+				if item.Status == model.EquipmentStatusActive {
+					equipmentID = item.ID
+					break
+				}
+			}
+		}
+	}
 	return indexPage{
-		SelectedEquipment: s.defaultSettings.EquipmentID,
-		MarkupPercent:     formatNumber(s.defaultSettings.MarkupPercent),
-		Equipment:         s.catalog.List(),
+		pageBase:          pageBase{Title: "Расчёт сметы", Active: "estimate", CSRF: s.csrfToken},
+		SelectedEquipment: equipmentID,
+		MarkupPercent:     formatNumber(markup),
+		Equipment:         equipmentItems,
 	}
 }
 
@@ -136,6 +168,12 @@ func (s *Server) renderError(w http.ResponseWriter, status int, message string) 
 
 func (s *Server) parseEstimateSettings(form indexPage) (model.Equipment, model.EstimateSettings, error) {
 	equipmentItem, err := s.catalog.GetByID(form.SelectedEquipment)
+	if s.store != nil {
+		equipmentItem, err = s.store.GetEquipment(s.companyID, form.SelectedEquipment)
+		if err != nil && errors.Is(err, storage.ErrNotFound) {
+			return model.Equipment{}, model.EstimateSettings{}, fmt.Errorf("оборудование с ID %q не найдено", form.SelectedEquipment)
+		}
+	}
 	if err != nil {
 		return model.Equipment{}, model.EstimateSettings{}, err
 	}
@@ -183,6 +221,35 @@ func equipmentTypeLabel(equipmentType model.EquipmentType) string {
 	return string(equipmentType)
 }
 
+func equipmentStatusLabel(status model.EquipmentStatus) string {
+	switch status {
+	case model.EquipmentStatusActive:
+		return "Активен"
+	case model.EquipmentStatusMaintenance:
+		return "На обслуживании"
+	case model.EquipmentStatusInactive:
+		return "Неактивен"
+	default:
+		return string(status)
+	}
+}
+
+func materialCategoryLabel(category model.MaterialCategory) string {
+	labels := map[model.MaterialCategory]string{
+		model.MaterialCategoryAluminum:       "Алюминий",
+		model.MaterialCategorySteel:          "Сталь",
+		model.MaterialCategoryStainlessSteel: "Нержавеющая сталь",
+		model.MaterialCategoryBrass:          "Латунь",
+		model.MaterialCategoryCopper:         "Медь",
+		model.MaterialCategoryPlastic:        "Пластик",
+		model.MaterialCategoryOther:          "Другое",
+	}
+	if label, exists := labels[category]; exists {
+		return label
+	}
+	return string(category)
+}
+
 func buildResultPage(estimate model.Estimate) resultPage {
 	features := make([]featureRow, 0, len(estimate.Part.Features))
 	featureNames := make(map[string]string, len(estimate.Part.Features))
@@ -207,11 +274,23 @@ func buildResultPage(estimate model.Estimate) resultPage {
 		})
 	}
 	return resultPage{
+		pageBase:          pageBase{Title: "Результат расчёта", Active: "estimate"},
 		Estimate:          estimate,
 		EquipmentTypeName: equipmentTypeLabel(estimate.Equipment.EquipmentModel.Type),
 		Features:          features,
 		Operations:        operations,
 	}
+}
+
+func (s *Server) equipmentList() []model.Equipment {
+	if s.store != nil {
+		snapshot, err := s.store.Snapshot(s.companyID)
+		if err != nil {
+			return nil
+		}
+		return snapshot.Equipment
+	}
+	return s.catalog.List()
 }
 
 func featureDisplayName(featureType model.FeatureType, index int) string {

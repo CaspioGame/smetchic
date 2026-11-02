@@ -1,0 +1,41 @@
+{{define "equipment-form.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body><div class="app">
+  {{template "sidebar" .}}
+  <main class="content">
+    <h1>{{.Title}}</h1>
+    {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+    <section class="card">
+      <form method="POST" action="/equipment/save">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="id" value="{{.Form.ID}}">
+        <label for="name">Внутреннее название</label>
+        <input id="name" name="name" value="{{.Form.Name}}" required>
+        <label for="equipment_model_id">Модель оборудования</label>
+        <select id="equipment_model_id" name="equipment_model_id" required>
+          <option value="">Выберите модель</option>
+          {{range .Models}}
+          <option value="{{.ID}}" {{if eq .ID $.Form.EquipmentModelID}}selected{{end}}>{{.Manufacturer}} {{.Model}} — {{.Type}}</option>
+          {{end}}
+        </select>
+        <div class="grid">
+          <div><label for="inventory_number">Инвентарный номер</label><input id="inventory_number" name="inventory_number" value="{{.Form.InventoryNumber}}"></div>
+          <div><label for="serial_number">Серийный номер</label><input id="serial_number" name="serial_number" value="{{.Form.SerialNumber}}"></div>
+          <div><label for="machine_rate_per_hour">Ставка, ₽/час</label><input id="machine_rate_per_hour" name="machine_rate_per_hour" type="number" min="0.01" step="any" value="{{.Form.MachineRatePerHour}}" required></div>
+          <div>
+            <label for="status">Статус</label>
+            <select id="status" name="status" required>
+              <option value="active" {{if eq .Form.Status "active"}}selected{{end}}>Активен</option>
+              <option value="maintenance" {{if eq .Form.Status "maintenance"}}selected{{end}}>На обслуживании</option>
+              <option value="inactive" {{if eq .Form.Status "inactive"}}selected{{end}}>Неактивен</option>
+            </select>
+          </div>
+        </div>
+        <p><button type="submit">Сохранить</button><a class="button secondary" href="/equipment">Отмена</a></p>
+      </form>
+    </section>
+  </main>
+</div></body></html>
+{{end}}

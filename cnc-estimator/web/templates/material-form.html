@@ -1,0 +1,38 @@
+{{define "material-form.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body><div class="app">
+  {{template "sidebar" .}}
+  <main class="content">
+    <h1>{{.Title}}</h1>
+    {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+    <section class="card">
+      <form method="POST" action="/materials/save">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="id" value="{{.Form.ID}}">
+        <label for="name">Название</label><input id="name" name="name" value="{{.Form.Name}}" required>
+        <div class="grid">
+          <div><label for="grade">Марка</label><input id="grade" name="grade" value="{{.Form.Grade}}" required></div>
+          <div>
+            <label for="category">Категория</label>
+            <select id="category" name="category" required>
+              <option value="aluminum" {{if eq .Form.Category "aluminum"}}selected{{end}}>Алюминий</option>
+              <option value="steel" {{if eq .Form.Category "steel"}}selected{{end}}>Сталь</option>
+              <option value="stainless_steel" {{if eq .Form.Category "stainless_steel"}}selected{{end}}>Нержавеющая сталь</option>
+              <option value="brass" {{if eq .Form.Category "brass"}}selected{{end}}>Латунь</option>
+              <option value="copper" {{if eq .Form.Category "copper"}}selected{{end}}>Медь</option>
+              <option value="plastic" {{if eq .Form.Category "plastic"}}selected{{end}}>Пластик</option>
+              <option value="other" {{if eq .Form.Category "other"}}selected{{end}}>Другое</option>
+            </select>
+          </div>
+          <div><label for="density">Плотность, кг/м³</label><input id="density" name="density" type="number" min="0.000001" step="any" value="{{.Form.Density}}" required></div>
+          <div><label for="price_per_kg">Цена за кг</label><input id="price_per_kg" name="price_per_kg" type="number" min="0" step="any" value="{{.Form.PricePerKg}}" required></div>
+          <div><label for="currency">Валюта</label><input id="currency" name="currency" value="{{.Form.Currency}}" placeholder="RUB" required></div>
+        </div>
+        <p><button type="submit">Сохранить</button><a class="button secondary" href="/materials">Отмена</a></p>
+      </form>
+    </section>
+  </main>
+</div></body></html>
+{{end}}

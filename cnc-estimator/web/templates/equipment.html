@@ -1,0 +1,39 @@
+{{define "equipment.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body><div class="app">
+  {{template "sidebar" .}}
+  <main class="content">
+    <h1>Оборудование</h1>
+    <p class="muted">Станки компании и их индивидуальные ставки. Технические параметры берутся из модели оборудования.</p>
+    {{if .Flash}}<div class="notice">{{.Flash}}</div>{{end}}
+    {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+    <p><a class="button" href="/equipment/new">Добавить станок</a></p>
+    <section class="card table-wrap">
+      <table>
+        <thead><tr><th>Название</th><th>Производитель / модель</th><th>Тип</th><th>Ставка</th><th>Статус</th><th>Действия</th></tr></thead>
+        <tbody>
+          {{range .Items}}
+          <tr>
+            <td>{{.Equipment.Name}}<br><span class="muted">{{.Equipment.InventoryNumber}} {{if .Equipment.SerialNumber}}/ {{.Equipment.SerialNumber}}{{end}}</span></td>
+            <td>{{.Equipment.EquipmentModel.Manufacturer}} {{.Equipment.EquipmentModel.Model}}</td>
+            <td>{{.TypeName}}</td>
+            <td>{{printf "%.2f" .Equipment.MachineRatePerHour}} ₽/ч</td>
+            <td>{{.StatusName}}</td>
+            <td class="actions">
+              <a class="button secondary" href="/equipment/edit?id={{urlquery .Equipment.ID}}">Изменить</a>
+              <form class="inline-form" method="POST" action="/equipment/delete" onsubmit="return confirm('Удалить этот станок?')">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="id" value="{{.Equipment.ID}}">
+                <button class="danger" type="submit">Удалить</button>
+              </form>
+            </td>
+          </tr>
+          {{else}}<tr><td colspan="6">Оборудование пока не добавлено.</td></tr>{{end}}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</div></body></html>
+{{end}}

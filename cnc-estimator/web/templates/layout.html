@@ -1,0 +1,65 @@
+{{define "page-head"}}
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} — CNC Estimator</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #172033; background: #f3f5f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    .app { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { padding: 26px 16px; background: #172033; color: #fff; }
+    .brand { display: block; margin: 0 10px 24px; color: #fff; font-size: 1.15rem; font-weight: 750; text-decoration: none; }
+    .nav { display: grid; gap: 5px; }
+    .nav a { padding: 11px 12px; border-radius: 7px; color: #d7deeb; text-decoration: none; }
+    .nav a:hover, .nav a.active { background: #2b3a57; color: #fff; }
+    .content { width: min(1200px, 100%); margin: 0 auto; padding: 32px; }
+    h1 { margin: 0 0 8px; font-size: 1.8rem; }
+    h2 { margin: 0 0 16px; font-size: 1.2rem; }
+    p { line-height: 1.5; }
+    .muted { color: #697386; }
+    .card { margin: 18px 0; padding: 22px; border: 1px solid #e0e5ec; border-radius: 12px; background: #fff; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 15px; }
+    label { display: block; margin: 12px 0 5px; font-weight: 600; }
+    input, select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #cbd2de; border-radius: 7px; background: #fff; color: inherit; }
+    fieldset { margin: 18px 0; padding: 14px; border: 1px solid #dfe4ec; border-radius: 8px; }
+    legend { padding: 0 6px; font-weight: 700; }
+    button, .button { display: inline-block; margin: 4px 4px 4px 0; padding: 9px 14px; border: 0; border-radius: 7px; background: #2457d6; color: #fff; font: inherit; font-weight: 650; text-decoration: none; cursor: pointer; }
+    button:hover, .button:hover { background: #1948bd; }
+    .button.secondary { background: #e8edf5; color: #26344d; }
+    button.danger { background: #b42332; }
+    .actions { white-space: nowrap; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 11px 10px; border-bottom: 1px solid #e8ebf0; text-align: left; vertical-align: top; }
+    th { color: #596477; font-size: .85rem; }
+    .notice { margin: 16px 0; padding: 13px 15px; border-radius: 8px; background: #eaf5ee; color: #185b32; }
+    .notice.error { background: #fff0ef; color: #8c2520; }
+    .notice.warning { background: #fff5e8; color: #754300; }
+    .summary { font-size: 1.08rem; }
+    .inline-form { display: inline; }
+    @media (max-width: 760px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { padding: 14px; }
+      .brand { margin: 0 6px 12px; }
+      .nav { display: flex; overflow-x: auto; }
+      .nav a { flex: 0 0 auto; padding: 9px 10px; }
+      .content { padding: 20px 14px; }
+      .card { padding: 16px; }
+    }
+  </style>
+</head>
+{{end}}
+
+{{define "sidebar"}}
+<aside class="sidebar">
+  <a class="brand" href="/">CNC Estimator</a>
+  <nav class="nav" aria-label="Основная навигация">
+    <a href="/" {{if eq .Active "estimate"}}class="active"{{end}}>Расчёт сметы</a>
+    <a href="/equipment" {{if eq .Active "equipment"}}class="active"{{end}}>Оборудование</a>
+    <a href="/materials" {{if eq .Active "materials"}}class="active"{{end}}>Материалы</a>
+    <a href="/stock-blanks" {{if eq .Active "blanks"}}class="active"{{end}}>Заготовки</a>
+    <a href="/company" {{if eq .Active "company"}}class="active"{{end}}>Компания и настройки</a>
+  </nav>
+</aside>
+{{end}}

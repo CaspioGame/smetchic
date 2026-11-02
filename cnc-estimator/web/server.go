@@ -1,7 +1,9 @@
 package web
 
 import (
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"log"
@@ -9,6 +11,7 @@ import (
 
 	"smetchic/equipment"
 	"smetchic/model"
+	"smetchic/storage"
 )
 
 //go:embed templates/*.html
@@ -16,23 +19,57 @@ var templateFiles embed.FS
 
 type Server struct {
 	catalog         *equipment.Catalog
+	store           *storage.Store
+	companyID       string
 	defaultSettings model.EstimateSettings
 	templates       *template.Template
+	csrfToken       string
 }
 
 func NewHandler(catalog *equipment.Catalog, defaults model.EstimateSettings) (http.Handler, error) {
-	templates, err := template.ParseFS(templateFiles, "templates/*.html")
+	server, err := newServer(catalog, nil, "", defaults)
 	if err != nil {
-		return nil, fmt.Errorf("не удалось загрузить HTML-шаблоны: %w", err)
+		return nil, err
 	}
 	if _, err := catalog.GetByID(defaults.EquipmentID); err != nil {
 		return nil, fmt.Errorf("оборудование по умолчанию не найдено: %w", err)
 	}
+	return server, nil
+}
 
-	server := &Server{catalog: catalog, defaultSettings: defaults, templates: templates}
-	mux := http.NewServeMux()
-	mux.Handle("/", server)
-	return mux, nil
+func NewCabinetHandler(store *storage.Store, companyID string) (http.Handler, error) {
+	snapshot, err := store.Snapshot(companyID)
+	if err != nil {
+		return nil, fmt.Errorf("компания кабинета не найдена: %w", err)
+	}
+	defaults := model.EstimateSettings{MarkupPercent: snapshot.Settings.DefaultMarkupPercent}
+	for _, item := range snapshot.Equipment {
+		if item.Status == model.EquipmentStatusActive {
+			defaults.EquipmentID = item.ID
+			break
+		}
+	}
+	server, err := newServer(nil, store, companyID, defaults)
+	if err != nil {
+		return nil, err
+	}
+	return server, nil
+}
+
+func newServer(catalog *equipment.Catalog, store *storage.Store, companyID string, defaults model.EstimateSettings) (*Server, error) {
+	templates, err := template.ParseFS(templateFiles, "templates/*.html")
+	if err != nil {
+		return nil, fmt.Errorf("не удалось загрузить HTML-шаблоны: %w", err)
+	}
+	token := make([]byte, 32)
+	if _, err := rand.Read(token); err != nil {
+		return nil, fmt.Errorf("не удалось подготовить защиту форм: %w", err)
+	}
+	return &Server{
+		catalog: catalog, store: store, companyID: companyID,
+		defaultSettings: defaults, templates: templates,
+		csrfToken: base64.RawURLEncoding.EncodeToString(token),
+	}, nil
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, status int, data any) {

@@ -1,0 +1,14 @@
+[
+  {
+    "ID": "material-f785b995cf1658568569777e",
+    "CompanyID": "demo-company",
+    "Name": "ыфв",
+    "Grade": "123",
+    "Category": "aluminum",
+    "Density": 21,
+    "PricePerKg": 123454,
+    "Currency": "RUB",
+    "CreatedAt": "2026-11-02T14:59:54.7571048Z",
+    "UpdatedAt": "2026-11-02T14:59:54.7571048Z"
+  }
+]
