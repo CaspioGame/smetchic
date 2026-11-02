@@ -69,6 +69,9 @@ func DefaultCatalog() (*Catalog, error) {
 }
 
 func (catalog *Catalog) List() []model.Equipment {
+	if catalog == nil {
+		return nil
+	}
 	items := make([]model.Equipment, 0, len(catalog.order))
 	for _, id := range catalog.order {
 		items = append(items, catalog.equipment[id])
@@ -77,6 +80,9 @@ func (catalog *Catalog) List() []model.Equipment {
 }
 
 func (catalog *Catalog) GetByID(id string) (model.Equipment, error) {
+	if catalog == nil {
+		return model.Equipment{}, fmt.Errorf("оборудование с ID %q не найдено", id)
+	}
 	item, exists := catalog.equipment[id]
 	if !exists {
 		return model.Equipment{}, fmt.Errorf("оборудование с ID %q не найдено", id)

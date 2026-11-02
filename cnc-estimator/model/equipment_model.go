@@ -47,16 +47,19 @@ func (equipmentModel EquipmentModel) Validate() error {
 	default:
 		return fmt.Errorf("unsupported equipment type %q", equipmentModel.Type)
 	}
-	for name, value := range map[string]float64{
-		"work area X":   equipmentModel.WorkAreaX,
-		"work area Y":   equipmentModel.WorkAreaY,
-		"work area Z":   equipmentModel.WorkAreaZ,
-		"maximum RPM":   equipmentModel.MaxRPM,
-		"spindle power": equipmentModel.SpindlePower,
-		"maximum feed":  equipmentModel.MaxFeed,
+	for _, characteristic := range []struct {
+		name  string
+		value float64
+	}{
+		{"work area X", equipmentModel.WorkAreaX},
+		{"work area Y", equipmentModel.WorkAreaY},
+		{"work area Z", equipmentModel.WorkAreaZ},
+		{"maximum RPM", equipmentModel.MaxRPM},
+		{"spindle power", equipmentModel.SpindlePower},
+		{"maximum feed", equipmentModel.MaxFeed},
 	} {
-		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
-			return fmt.Errorf("equipment model %s must be non-negative", name)
+		if math.IsNaN(characteristic.value) || math.IsInf(characteristic.value, 0) || characteristic.value < 0 {
+			return fmt.Errorf("equipment model %s must be non-negative", characteristic.name)
 		}
 	}
 	return nil
