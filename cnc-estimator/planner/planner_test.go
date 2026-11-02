@@ -35,7 +35,7 @@ func TestBuildOperationsValidatesFeatures(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := BuildOperations(model.Part{Features: []model.Feature{test.feature}}, model.Machine{})
+			_, err := BuildOperations(model.Part{Features: []model.Feature{test.feature}}, model.Equipment{})
 			if err == nil {
 				t.Fatal("BuildOperations() expected an error")
 			}
@@ -51,7 +51,12 @@ func TestBuildOperationsLeavesTimeCalculationToCalculator(t *testing.T) {
 		{ID: "chamfer", Type: model.FeatureChamfer, ChamferSize: 1},
 	}}
 
-	operations, err := BuildOperations(part, model.Machine{Name: "test machine"})
+	operations, err := BuildOperations(part, model.Equipment{
+		Name: "test machine",
+		EquipmentModel: model.EquipmentModel{
+			MaxFeed: 5000,
+		},
+	})
 	if err != nil {
 		t.Fatalf("BuildOperations() error = %v", err)
 	}

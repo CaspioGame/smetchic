@@ -25,17 +25,17 @@ func PrintEstimate(estimate model.Estimate) {
 	}
 
 	fmt.Println()
-	fmt.Println("MACHINE")
-	fmt.Println(estimate.Machine.Name)
-	fmt.Printf("Rate: %.2f ₽/hour\n", estimate.Machine.HourlyRate)
-	fmt.Printf("Maximum feed: %.0f mm/min\n", estimate.Machine.MaxFeed)
+	fmt.Println("EQUIPMENT")
+	fmt.Println(estimate.Equipment.Name)
+	fmt.Printf("Rate: %.2f ₽/hour\n", estimate.Equipment.MachineRatePerHour)
+	fmt.Printf("Maximum feed: %.0f mm/min\n", estimate.Equipment.EquipmentModel.MaxFeed)
 
 	fmt.Println()
 	fmt.Println("OPERATIONS")
 	for i, operation := range estimate.Operations {
 		fmt.Printf("%d. %s — %s\n", i+1, featureNames[operation.FeatureID], operation.Name)
 		fmt.Printf("   ID: %s | FeatureID: %s | Strategy: %s\n", operation.ID, operation.FeatureID, operation.Strategy)
-		fmt.Printf("   Machine: %s | Tool: %s Ø%.0f mm\n", operation.Machine.Name, operation.Tool.Name, operation.Tool.Diameter)
+		fmt.Printf("   Equipment: %s | Tool: %s Ø%.0f mm\n", operation.Equipment.Name, operation.Tool.Name, operation.Tool.Diameter)
 		fmt.Printf("   Feed: %.0f mm/min | RPM: %.0f\n", operation.CuttingParameters.Feed, operation.CuttingParameters.RPM)
 		fmt.Printf("   Depth: %.2f mm | StepDown: %.2f mm | StepOver: %.2f mm\n",
 			operation.CuttingParameters.Depth, operation.CuttingParameters.StepDown, operation.CuttingParameters.StepOver)

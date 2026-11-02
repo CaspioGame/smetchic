@@ -12,8 +12,10 @@
     .card { padding: 36px; border: 1px solid #e0e5ec; border-radius: 14px; background: #fff; box-shadow: 0 12px 32px #1720330b; }
     h1 { margin: 0 0 8px; font-size: 2rem; }
     p { color: #5c6678; line-height: 1.6; }
-    label { display: block; margin: 28px 0 10px; font-weight: 650; }
-    input[type=file] { display: block; width: 100%; padding: 12px; border: 1px solid #cbd3df; border-radius: 8px; box-sizing: border-box; }
+    label { display: block; margin: 18px 0 8px; font-weight: 650; }
+    input, select { display: block; width: 100%; padding: 11px 12px; border: 1px solid #cbd3df; border-radius: 8px; box-sizing: border-box; background: #fff; font: inherit; }
+    fieldset { margin-top: 26px; padding: 20px; border: 1px solid #e0e5ec; border-radius: 10px; }
+    legend { padding: 0 8px; font-weight: 700; }
     button, .button { display: inline-block; margin-top: 20px; padding: 12px 20px; border: 0; border-radius: 8px; background: #2457d6; color: #fff; font: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
     button:hover, .button:hover { background: #1948bd; }
     .notice { margin-top: 24px; padding: 14px 16px; border-radius: 8px; background: #fff5e8; color: #8a4c00; }
@@ -30,6 +32,17 @@
       <form method="POST" action="/" enctype="multipart/form-data">
         <label for="part_file">Файл детали (.part)</label>
         <input id="part_file" type="file" name="part_file" accept=".part" required>
+        <fieldset>
+          <legend>Настройки расчёта</legend>
+          <label for="equipment_id">Оборудование</label>
+          <select id="equipment_id" name="equipment_id" required>
+            {{range .Equipment}}
+            <option value="{{.ID}}" {{if eq .ID $.SelectedEquipment}}selected{{end}}>{{.Name}}</option>
+            {{end}}
+          </select>
+          <label for="markup_percent">Наценка, %</label>
+          <input id="markup_percent" name="markup_percent" type="number" min="0" step="any" value="{{.MarkupPercent}}" required>
+        </fieldset>
         <button type="submit">Рассчитать</button>
       </form>
     </section>

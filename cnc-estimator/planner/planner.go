@@ -8,7 +8,7 @@ import (
 	"smetchic/model"
 )
 
-func BuildOperations(part model.Part, machine model.Machine) ([]model.Operation, error) {
+func BuildOperations(part model.Part, equipment model.Equipment) ([]model.Operation, error) {
 	operations := make([]model.Operation, 0)
 	addOperation := func(feature model.Feature, name, strategy string, tool model.Tool, parameters model.CuttingParameters, testLength float64) {
 		operations = append(operations, model.Operation{
@@ -16,7 +16,7 @@ func BuildOperations(part model.Part, machine model.Machine) ([]model.Operation,
 			FeatureID:               feature.ID,
 			Name:                    name,
 			Strategy:                strategy,
-			Machine:                 machine,
+			Equipment:               equipment,
 			Tool:                    tool,
 			CuttingParameters:       parameters,
 			EstimatedToolpathLength: testLength,

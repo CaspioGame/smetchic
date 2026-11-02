@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"smetchic/equipment"
 	"smetchic/estimator"
 	"smetchic/model"
 	"smetchic/output"
@@ -21,14 +22,21 @@ func main() {
 }
 
 func run(args []string) error {
-	machine := model.Machine{
-		Name:       "DeKart S4040",
-		HourlyRate: 1500,
-		MaxFeed:    5000,
+	catalog, err := equipment.DefaultCatalog()
+	if err != nil {
+		return err
+	}
+	equipmentItem, err := catalog.GetByID("dekart-s4040")
+	if err != nil {
+		return err
+	}
+	settings := model.EstimateSettings{
+		EquipmentID:   equipmentItem.ID,
+		MarkupPercent: 50,
 	}
 
 	if len(args) == 0 {
-		handler, err := web.NewHandler(machine)
+		handler, err := web.NewHandler(catalog, settings)
 		if err != nil {
 			return fmt.Errorf("не удалось подготовить Web-интерфейс: %w", err)
 		}
@@ -45,7 +53,7 @@ func run(args []string) error {
 		return err
 	}
 
-	estimate, err := estimator.Calculate(part, machine)
+	estimate, err := estimator.Calculate(part, equipmentItem, settings)
 	if err != nil {
 		return err
 	}

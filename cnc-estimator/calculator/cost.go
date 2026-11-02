@@ -6,9 +6,9 @@ import (
 	"smetchic/model"
 )
 
-func CalculateCosts(totalMachineTime float64, machine model.Machine) (machineCost, totalCost, suggestedPrice float64) {
-	machineCost = totalMachineTime / 60 * machine.HourlyRate
+func CalculateCosts(totalMachineTime float64, equipment model.Equipment, markupPercent float64) (machineCost, totalCost, suggestedPrice float64) {
+	machineCost = totalMachineTime / 60 * equipment.MachineRatePerHour
 	totalCost = machineCost
-	suggestedPrice = math.Round(totalCost*1.5*100) / 100
+	suggestedPrice = math.Round(totalCost*(1+markupPercent/100)*100) / 100
 	return machineCost, totalCost, suggestedPrice
 }

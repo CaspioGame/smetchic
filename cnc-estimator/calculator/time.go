@@ -13,8 +13,9 @@ func CalculateOperationTimes(operations []model.Operation) float64 {
 	var totalMachineTime float64
 	for i := range operations {
 		operation := &operations[i]
-		if operation.Machine.MaxFeed > 0 && operation.CuttingParameters.Feed > operation.Machine.MaxFeed {
-			operation.CuttingParameters.Feed = operation.Machine.MaxFeed
+		maxFeed := operation.Equipment.EquipmentModel.MaxFeed
+		if maxFeed > 0 && operation.CuttingParameters.Feed > maxFeed {
+			operation.CuttingParameters.Feed = maxFeed
 		}
 		operation.TimeMinutes = CalculateOperationTime(*operation)
 		totalMachineTime += operation.TimeMinutes

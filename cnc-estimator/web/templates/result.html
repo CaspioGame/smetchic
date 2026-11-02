@@ -40,6 +40,15 @@
     <div class="notice"><strong>Важно:</strong> расчёт использует тестовые параметры и оценочную длину траектории. Это не точный CAM-расчёт и не коммерческое предложение.</div>
 
     <section>
+      <h2>НАСТРОЙКИ РАСЧЁТА</h2>
+      <div class="grid">
+        <div><span class="label">Станок</span><span class="value">{{.Estimate.Equipment.Name}}</span></div>
+        <div><span class="label">Ставка</span><span class="value">{{printf "%.2f ₽/ч" .Estimate.Equipment.MachineRatePerHour}}</span></div>
+        <div><span class="label">Наценка</span><span class="value">{{printf "%.2f%%" .Estimate.Settings.MarkupPercent}}</span></div>
+      </div>
+    </section>
+
+    <section>
       <h2>PART</h2>
       <div class="grid">
         <div><span class="label">Файл</span><span class="value">{{.Estimate.Part.SourceFile}}</span></div>
@@ -65,10 +74,13 @@
     </section>
 
     <section>
-      <h2>MACHINE</h2>
+      <h2>ОБОРУДОВАНИЕ</h2>
       <div class="grid">
-        <div><span class="label">Name</span><span class="value">{{.Estimate.Machine.Name}}</span></div>
-        <div><span class="label">Hourly Rate</span><span class="value">{{printf "%.2f" .Estimate.Machine.HourlyRate}} ₽/hour</span></div>
+        <div><span class="label">Оборудование</span><span class="value">{{.Estimate.Equipment.Name}}</span></div>
+        <div><span class="label">Тип</span><span class="value">{{.EquipmentTypeName}}</span></div>
+        <div><span class="label">Производитель</span><span class="value">{{.Estimate.Equipment.EquipmentModel.Manufacturer}}</span></div>
+        <div><span class="label">Модель</span><span class="value">{{.Estimate.Equipment.EquipmentModel.Model}}</span></div>
+        <div><span class="label">Ставка</span><span class="value">{{printf "%.2f ₽/ч" .Estimate.Equipment.MachineRatePerHour}}</span></div>
       </div>
     </section>
 
@@ -100,16 +112,17 @@
 
     <section>
       <h2>TIME</h2>
-      <p class="summary">Total machine time: <strong>{{printf "%.2f min" .Estimate.TotalMachineTime}}</strong></p>
+      <p class="summary">Время обработки: <strong>{{printf "%.2f min" .Estimate.TotalMachineTime}}</strong></p>
       <p class="muted">Оценка времени основана на тестовой длине траектории и подаче.</p>
     </section>
     <section>
       <h2>COST</h2>
-      <p class="summary">Machine cost: <strong>{{printf "%.2f ₽" .Estimate.MachineCost}}</strong></p>
+      <p class="summary">Стоимость станка: <strong>{{printf "%.2f ₽" .Estimate.MachineCost}}</strong></p>
+      <p class="summary">Промежуточная стоимость: <strong>{{printf "%.2f ₽" .Estimate.TotalCost}}</strong></p>
     </section>
     <section>
       <h2>ESTIMATE</h2>
-      <p class="summary">Suggested price (demo markup): <strong>{{printf "%.2f ₽" .Estimate.SuggestedPrice}}</strong></p>
+      <p class="summary">Итоговая цена (demo markup): <strong>{{printf "%.2f ₽" .Estimate.SuggestedPrice}}</strong></p>
       <p class="muted">Не является реальной ценой заказа или коммерческим предложением.</p>
     </section>
   </main>

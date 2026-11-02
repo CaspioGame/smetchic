@@ -5,7 +5,7 @@ type Operation struct {
 	FeatureID               string
 	Name                    string
 	Strategy                string
-	Machine                 Machine
+	Equipment               Equipment
 	Tool                    Tool
 	CuttingParameters       CuttingParameters
 	EstimatedToolpathLength float64
