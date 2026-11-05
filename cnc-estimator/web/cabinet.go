@@ -780,7 +780,10 @@ func (s *Server) setCSRFCookie(w http.ResponseWriter) {
 }
 
 func (s *Server) basePage(title, active, flash, message string) pageBase {
-	base := pageBase{Title: title, Active: active, CSRF: s.csrfToken, Error: message}
+	base := pageBase{
+		Title: title, Active: active, CSRF: s.csrfToken,
+		Error: message, LifecycleEnabled: s.lifecycle != nil,
+	}
 	switch flash {
 	case "saved":
 		base.Flash = "Изменения сохранены."

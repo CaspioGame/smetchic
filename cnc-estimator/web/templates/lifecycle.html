@@ -1,0 +1,164 @@
+{{define "lifecycle.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body>
+  <div class="app">
+    {{template "sidebar" .}}
+    <main class="content">
+      <h1>{{.Title}}</h1>
+      {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+
+      {{if eq .View "projects"}}
+      <section class="card">
+        <p>Проекты PostgreSQL текущей компании.</p>
+        <a class="button" href="/projects/new">Создать проект</a>
+        <div class="table-wrap">
+          <table><thead><tr><th>Проект</th><th>Описание</th><th>Создан</th></tr></thead><tbody>
+            {{range .Projects}}<tr>
+              <td><a href="/projects/{{.ID}}">{{.Name}}</a></td><td>{{.Description}}</td><td>{{.CreatedAt.Format "02.01.2006 15:04"}}</td>
+            </tr>{{else}}<tr><td colspan="3" class="muted">Проектов пока нет.</td></tr>{{end}}
+          </tbody></table>
+        </div>
+      </section>
+      {{end}}
+
+      {{if eq .View "project-form"}}
+      <section class="card">
+        <form method="post" action="/projects/create">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <label for="project-name">Название</label>
+          <input id="project-name" name="name" value="{{.FormName}}" required maxlength="200">
+          <label for="project-description">Описание</label>
+          <input id="project-description" name="description" value="{{.FormDesc}}" maxlength="2000">
+          <button type="submit">Создать проект</button>
+          <a class="button secondary" href="/projects">Отмена</a>
+        </form>
+      </section>
+      {{end}}
+
+      {{if eq .View "project"}}
+      <p><a href="/projects">← Все проекты</a></p>
+      <section class="card">
+        <h2>Детали проекта</h2>
+        <p>{{.Project.Description}}</p>
+        <div class="table-wrap">
+          <table><thead><tr><th>Деталь</th><th>Описание</th><th>Ревизии</th></tr></thead><tbody>
+            {{range .Parts}}<tr>
+              <td><a href="/parts/{{.ID}}">{{.Name}}</a></td><td>{{.Description}}</td><td><a href="/parts/{{.ID}}">Открыть</a></td>
+            </tr>{{else}}<tr><td colspan="3" class="muted">В проекте пока нет деталей.</td></tr>{{end}}
+          </tbody></table>
+        </div>
+      </section>
+      <section class="card">
+        <h2>Добавить деталь или новую ревизию</h2>
+        <p class="muted">Загрузка файла создаёт новую ревизию; исходный текст и контрольная сумма сохраняются.</p>
+        <form method="post" action="/projects/{{.Project.ID}}/parts/upload" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <label for="part-name">Название детали (для новой детали; при повторной загрузке — ключ её идентичности)</label>
+          <input id="part-name" name="part_name" maxlength="200">
+          <label for="part-description">Описание</label>
+          <input id="part-description" name="part_description" maxlength="2000">
+          <label for="part-file">Файл .part (не более 2 МБ)</label>
+          <input id="part-file" type="file" name="part_file" accept=".part" required>
+          <button type="submit">Загрузить и создать ревизию</button>
+        </form>
+      </section>
+      {{end}}
+
+      {{if eq .View "part"}}
+      <p><a href="/projects/{{.Project.ID}}">← Проект {{.Project.Name}}</a></p>
+      <section class="card">
+        <h2>Ревизии детали</h2>
+        <div class="table-wrap">
+          <table><thead><tr><th>Ревизия</th><th>Исходный файл</th><th>SHA-256</th><th>Добавлена</th></tr></thead><tbody>
+            {{range .Revisions}}<tr>
+              <td><a href="/revisions/{{.ID}}">#{{.RevisionNumber}}</a></td><td>{{.SourceFilename}}</td><td><code>{{.SourceHash}}</code></td><td>{{.CreatedAt.Format "02.01.2006 15:04"}}</td>
+            </tr>{{else}}<tr><td colspan="4" class="muted">Ревизий пока нет.</td></tr>{{end}}
+          </tbody></table>
+        </div>
+      </section>
+      {{end}}
+
+      {{if eq .View "revision"}}
+      <p><a href="/projects/{{.Project.ID}}">← Проект {{.Project.Name}}</a> / <a href="/parts/{{.Part.ID}}">{{.Part.Name}}</a></p>
+      <section class="card">
+        <h2>Ревизия #{{.Revision.RevisionNumber}}</h2>
+        <p>Файл: <strong>{{.Revision.SourceFilename}}</strong></p>
+        <p><a class="button secondary" href="/revisions/{{.Revision.ID}}/source">Скачать исходный файл</a></p>
+        <p>Формат: {{.Revision.SourceFormat}}; parser: {{.Revision.ParserVersion}}</p>
+        <p>SHA-256: <code>{{.Revision.SourceHash}}</code></p>
+        <p>Материал: {{.Revision.ParsedPart.Material}}</p>
+        <p>Заготовка: {{printf "%.2f × %.2f × %.2f мм" .Revision.ParsedPart.Stock.Width .Revision.ParsedPart.Stock.Length .Revision.ParsedPart.Stock.Height}}</p>
+      </section>
+      <section class="card">
+        <h2>Features</h2>
+        <div class="table-wrap"><table><thead><tr><th>ID</th><th>Тип</th><th>Размеры, мм</th></tr></thead><tbody>
+          {{range .Revision.ParsedPart.Features}}<tr><td>{{.ID}}</td><td>{{.Type}}</td><td>{{printf "%.2f × %.2f × %.2f" .Width .Length .Depth}}</td></tr>
+          {{else}}<tr><td colspan="3" class="muted">Features отсутствуют.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>Создать версию расчёта</h2>
+        {{if .Equipment}}
+        <form method="post" action="/revisions/{{.Revision.ID}}/calculate">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <label for="estimate-name">Название сметы</label>
+          <input id="estimate-name" name="estimate_name" value="Расчёт">
+          <label for="equipment-id">Оборудование</label>
+          <select id="equipment-id" name="equipment_id" required>
+            {{range .Equipment}}<option value="{{.ID}}">{{.Name}} — {{printf "%.2f" .MachineRatePerHour}} / час</option>{{end}}
+          </select>
+          <label for="markup">Наценка, %</label>
+          <input id="markup" name="markup_percent" type="number" min="0" step="any" value="{{.Markup}}" required>
+          <button type="submit">Рассчитать и сохранить версию</button>
+        </form>
+        {{else}}<div class="notice warning">Нет активного оборудования в JSON-справочнике компании.</div>{{end}}
+      </section>
+      <section class="card">
+        <h2>Сметы этой ревизии</h2>
+        {{range .Estimates}}<p><a href="/estimates/{{.ID}}">{{.Name}}</a></p>{{else}}<p class="muted">Смет пока нет.</p>{{end}}
+      </section>
+      {{end}}
+
+      {{if eq .View "estimate"}}
+      <section class="card">
+        <h2>{{.Estimate.Name}} — версии</h2>
+        <div class="table-wrap"><table><thead><tr><th>Версия</th><th>Время станка</th><th>Ставка</th><th>Цена</th><th>Дата</th></tr></thead><tbody>
+          {{range .Versions}}<tr>
+            <td><a href="/estimates/{{.EstimateID}}/versions/{{.ID}}">#{{.VersionNumber}}</a></td>
+            <td>{{printf "%.4f ч" .MachineTimeHours}}</td><td>{{printf "%.2f %s/ч" .HourlyRate .Currency}}</td>
+            <td>{{printf "%.2f %s" .FinalPrice .Currency}}</td><td>{{.CreatedAt.Format "02.01.2006 15:04"}}</td>
+          </tr>{{else}}<tr><td colspan="5" class="muted">Версий расчёта пока нет.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "version"}}
+      <p><a href="/estimates/{{.Estimate.ID}}">← Все версии «{{.Estimate.Name}}»</a></p>
+      <section class="card">
+        <h2>Версия расчёта #{{.Version.VersionNumber}}</h2>
+        <p>Станок: {{.Result.Equipment.Name}}</p>
+        <p>Модель: {{.Result.Equipment.EquipmentModel.Manufacturer}} {{.Result.Equipment.EquipmentModel.Model}}</p>
+        <p>Ставка на момент расчёта: <strong>{{printf "%.2f %s/ч" .Version.HourlyRate .Version.Currency}}</strong></p>
+        <p>Время обработки: <strong>{{printf "%.2f мин" .Result.TotalMachineTime}}</strong></p>
+        <p>Стоимость станка: <strong>{{printf "%.2f %s" .Version.MachineCost .Version.Currency}}</strong></p>
+        <p>Наценка: {{printf "%.2f%%" .Version.MarkupPercent}}; итог: <strong>{{printf "%.2f %s" .Version.FinalPrice .Version.Currency}}</strong></p>
+        <p>Ревизия детали: <a href="/revisions/{{.Version.PartRevisionID}}">{{.Version.PartRevisionID}}</a></p>
+      </section>
+      <section class="card">
+        <h2>Сохранённые операции</h2>
+        <div class="table-wrap"><table><thead><tr><th>Операция</th><th>Стратегия</th><th>Время, мин</th><th>Траектория, мм</th></tr></thead><tbody>
+          {{range .Result.Operations}}<tr><td>{{.Name}}</td><td>{{.Strategy}}</td><td>{{printf "%.2f" .TimeMinutes}}</td><td>{{printf "%.2f" .EstimatedToolpathLength}}</td></tr>
+          {{else}}<tr><td colspan="4" class="muted">Операции отсутствуют в сохранённом снимке.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      <details class="card"><summary>Снимок входных данных</summary><pre>{{printf "%s" .Version.InputSnapshot}}</pre></details>
+      <details class="card"><summary>Снимок настроек</summary><pre>{{printf "%s" .Version.SettingsSnapshot}}</pre></details>
+      <details class="card"><summary>Полный результат расчёта</summary><pre>{{printf "%s" .Version.ResultSnapshot}}</pre></details>
+      {{end}}
+    </main>
+  </div>
+</body>
+</html>
+{{end}}

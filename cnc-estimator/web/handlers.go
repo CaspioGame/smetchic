@@ -21,11 +21,12 @@ const (
 )
 
 type pageBase struct {
-	Title  string
-	Active string
-	CSRF   string
-	Flash  string
-	Error  string
+	Title            string
+	Active           string
+	CSRF             string
+	Flash            string
+	Error            string
+	LifecycleEnabled bool
 }
 
 type indexPage struct {
@@ -56,6 +57,9 @@ type operationRow struct {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.lifecycle != nil && s.serveLifecycle(w, r) {
+		return
+	}
 	if s.store != nil {
 		s.serveCabinet(w, r)
 		return
@@ -94,6 +98,7 @@ func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	form := indexPage{
 		pageBase: pageBase{
 			Title: "Расчёт сметы", Active: "estimate", CSRF: s.csrfToken,
+			LifecycleEnabled: s.lifecycle != nil,
 		},
 		SelectedEquipment: r.FormValue("equipment_id"),
 		MarkupPercent:     r.FormValue("markup_percent"),
@@ -134,7 +139,9 @@ func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.render(w, "result.html", http.StatusOK, buildResultPage(estimate))
+	page := buildResultPage(estimate)
+	page.LifecycleEnabled = s.lifecycle != nil
+	s.render(w, "result.html", http.StatusOK, page)
 }
 
 func (s *Server) defaultIndexPage() indexPage {
@@ -153,7 +160,7 @@ func (s *Server) defaultIndexPage() indexPage {
 		}
 	}
 	return indexPage{
-		pageBase:          pageBase{Title: "Расчёт сметы", Active: "estimate", CSRF: s.csrfToken},
+		pageBase:          pageBase{Title: "Расчёт сметы", Active: "estimate", CSRF: s.csrfToken, LifecycleEnabled: s.lifecycle != nil},
 		SelectedEquipment: equipmentID,
 		MarkupPercent:     formatNumber(markup),
 		Equipment:         equipmentItems,

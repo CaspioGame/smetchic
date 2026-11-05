@@ -56,6 +56,7 @@
   <a class="brand" href="/">CNC Estimator</a>
   <nav class="nav" aria-label="Основная навигация">
     <a href="/" {{if eq .Active "estimate"}}class="active"{{end}}>Расчёт сметы</a>
+    {{if .LifecycleEnabled}}<a href="/projects" {{if eq .Active "projects"}}class="active"{{end}}>Проекты и детали</a>{{end}}
     <a href="/equipment" {{if eq .Active "equipment"}}class="active"{{end}}>Оборудование</a>
     <a href="/materials" {{if eq .Active "materials"}}class="active"{{end}}>Материалы</a>
     <a href="/stock-blanks" {{if eq .Active "blanks"}}class="active"{{end}}>Заготовки</a>

@@ -40,6 +40,28 @@ func TestMigrationExistsAndIncludesRequiredSchema(t *testing.T) {
 	}
 }
 
+func TestProjectLifecycleMigrationExistsAndPreservesVersionImmutability(t *testing.T) {
+	migrationPath := filepath.Join("..", "..", "migrations", "002_project_lifecycle.sql")
+	migration, err := os.ReadFile(migrationPath)
+	if err != nil {
+		t.Fatalf("read project lifecycle migration: %v", err)
+	}
+	text := string(migration)
+	for _, expected := range []string{
+		"parts_company_project_name_uq",
+		"estimates_company_revision_name_uq",
+		"ADD COLUMN part_revision_id TEXT",
+		"UPDATE estimate_versions",
+		"estimate_versions_estimate_revision_fk",
+		"CREATE TRIGGER estimate_versions_immutable",
+		"CREATE TRIGGER estimate_versions_immutable_truncate",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("project lifecycle migration does not contain %q", expected)
+		}
+	}
+}
+
 func TestValidateURL(t *testing.T) {
 	tests := []struct {
 		name string

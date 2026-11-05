@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 
+	"smetchic/application"
 	"smetchic/equipment"
 	"smetchic/model"
 	"smetchic/storage"
@@ -21,9 +22,30 @@ type Server struct {
 	catalog         *equipment.Catalog
 	store           *storage.Store
 	companyID       string
+	lifecycle       *application.Service
 	defaultSettings model.EstimateSettings
 	templates       *template.Template
 	csrfToken       string
+}
+
+func NewLifecycleCabinetHandler(store *storage.Store, companyID string, lifecycle *application.Service) (http.Handler, error) {
+	snapshot, err := store.Snapshot(companyID)
+	if err != nil {
+		return nil, fmt.Errorf("компания кабинета не найдена: %w", err)
+	}
+	defaults := model.EstimateSettings{MarkupPercent: snapshot.Settings.DefaultMarkupPercent}
+	for _, item := range snapshot.Equipment {
+		if item.Status == model.EquipmentStatusActive {
+			defaults.EquipmentID = item.ID
+			break
+		}
+	}
+	server, err := newServer(nil, store, companyID, defaults)
+	if err != nil {
+		return nil, err
+	}
+	server.lifecycle = lifecycle
+	return server, nil
 }
 
 func NewHandler(catalog *equipment.Catalog, defaults model.EstimateSettings) (http.Handler, error) {

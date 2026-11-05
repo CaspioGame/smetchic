@@ -1,17 +1,21 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"smetchic/application"
 	"smetchic/equipment"
 	"smetchic/estimator"
 	"smetchic/model"
 	"smetchic/output"
 	"smetchic/parser"
 	"smetchic/storage"
+	"smetchic/storage/postgres"
 	"smetchic/web"
 )
 
@@ -32,7 +36,35 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("не удалось выбрать компанию: %w", err)
 		}
-		handler, err := web.NewCabinetHandler(store, companyID)
+		var handler http.Handler
+		if os.Getenv(postgres.DatabaseEnvVar) == "" {
+			handler, err = web.NewCabinetHandler(store, companyID)
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), postgres.DefaultPingTimeout())
+			db, openErr := postgres.OpenFromEnv(ctx)
+			cancel()
+			if openErr != nil {
+				return fmt.Errorf("не удалось подключиться к PostgreSQL: %w", openErr)
+			}
+			defer func() {
+				if closeErr := db.Close(); closeErr != nil {
+					log.Printf("не удалось закрыть соединение PostgreSQL: %v", closeErr)
+				}
+			}()
+			snapshot, snapshotErr := store.Snapshot(companyID)
+			if snapshotErr != nil {
+				return fmt.Errorf("не удалось загрузить демонстрационную компанию: %w", snapshotErr)
+			}
+			repository := postgres.NewLifecycleRepository(db)
+			service := application.NewService(repository, application.NewJSONConfigProvider(store))
+			bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err = service.EnsureCompany(bootstrapCtx, snapshot.Company, snapshot.Settings)
+			bootstrapCancel()
+			if err != nil {
+				return fmt.Errorf("не удалось подготовить компанию в PostgreSQL: %w", err)
+			}
+			handler, err = web.NewLifecycleCabinetHandler(store, companyID, service)
+		}
 		if err != nil {
 			return fmt.Errorf("не удалось подготовить Web-интерфейс: %w", err)
 		}
