@@ -115,13 +115,13 @@ func (s *Server) serveCabinet(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/":
 		if r.Method == http.MethodGet {
-			s.setCSRFCookie(w)
-			page := s.defaultIndexPage()
+			s.setCSRFCookie(w, r)
+			page := s.defaultIndexPage(r)
 			page.Flash = flashMessage(r)
 			if len(page.Equipment) == 0 {
 				page.Error = "В текущей компании нет доступного оборудования для расчёта."
 			}
-			s.render(w, "index.html", http.StatusOK, page)
+			s.render(w, r, "index.html", http.StatusOK, page)
 			return
 		}
 		if r.Method == http.MethodPost {
@@ -135,13 +135,13 @@ func (s *Server) serveCabinet(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/equipment/new":
 		if r.Method == http.MethodGet {
-			s.setCSRFCookie(w)
-			snapshot, err := s.store.Snapshot(s.companyID)
+			s.setCSRFCookie(w, r)
+			snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 			if err != nil {
 				s.writeInternalError(w, "load equipment form", err)
 				return
 			}
-			s.render(w, "equipment-form.html", http.StatusOK, equipmentFormPage{
+			s.render(w, r, "equipment-form.html", http.StatusOK, equipmentFormPage{
 				pageBase: s.basePage("Новое оборудование", "equipment", "", ""),
 				Models:   snapshot.EquipmentModels,
 				Form: equipmentForm{
@@ -173,13 +173,13 @@ func (s *Server) serveCabinet(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/materials/new":
 		if r.Method == http.MethodGet {
-			s.setCSRFCookie(w)
-			snapshot, err := s.store.Snapshot(s.companyID)
+			s.setCSRFCookie(w, r)
+			snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 			if err != nil {
 				s.writeInternalError(w, "load material form", err)
 				return
 			}
-			s.render(w, "material-form.html", http.StatusOK, materialFormPage{
+			s.render(w, r, "material-form.html", http.StatusOK, materialFormPage{
 				pageBase: s.basePage("Новый материал", "materials", "", ""),
 				Form:     materialForm{Category: string(model.MaterialCategoryAluminum), Currency: snapshot.Settings.Currency},
 			})
@@ -247,11 +247,11 @@ func (s *Server) serveCabinet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderEquipmentList(w http.ResponseWriter, r *http.Request, message string, status int) {
-	s.setCSRFCookie(w)
+	s.setCSRFCookie(w, r)
 	if message == "" {
 		message = flashMessage(r)
 	}
-	snapshot, err := s.store.Snapshot(s.companyID)
+	snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 	if err != nil {
 		s.writeInternalError(w, "list equipment", err)
 		return
@@ -267,15 +267,15 @@ func (s *Server) renderEquipmentList(w http.ResponseWriter, r *http.Request, mes
 			StatusName: equipmentStatusLabel(item.Status),
 		})
 	}
-	s.render(w, "equipment.html", status, equipmentListPage{
+	s.render(w, r, "equipment.html", status, equipmentListPage{
 		pageBase: base,
 		Items:    items,
 	})
 }
 
 func (s *Server) renderEquipmentForm(w http.ResponseWriter, r *http.Request, create bool) {
-	s.setCSRFCookie(w)
-	snapshot, err := s.store.Snapshot(s.companyID)
+	s.setCSRFCookie(w, r)
+	snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 	if err != nil {
 		s.writeInternalError(w, "load equipment form", err)
 		return
@@ -288,7 +288,7 @@ func (s *Server) renderEquipmentForm(w http.ResponseWriter, r *http.Request, cre
 		form.MachineRatePerHour = "1500"
 	} else {
 		id := r.URL.Query().Get("id")
-		item, getErr := s.store.GetEquipment(s.companyID, id)
+		item, getErr := s.store.GetEquipment(companyIDForRequest(s, r), id)
 		if getErr != nil {
 			http.NotFound(w, r)
 			return
@@ -299,7 +299,7 @@ func (s *Server) renderEquipmentForm(w http.ResponseWriter, r *http.Request, cre
 			Status: string(item.Status), MachineRatePerHour: formatNumber(item.MachineRatePerHour),
 		}
 	}
-	s.render(w, "equipment-form.html", http.StatusOK, equipmentFormPage{
+	s.render(w, r, "equipment-form.html", http.StatusOK, equipmentFormPage{
 		pageBase: s.basePage(title, "equipment", "", ""),
 		Form:     form, Models: snapshot.EquipmentModels,
 	})
@@ -326,7 +326,7 @@ func (s *Server) saveEquipment(w http.ResponseWriter, r *http.Request) {
 		id, err = newRecordID("equipment")
 	}
 	if err != nil {
-		s.renderEquipmentFormError(w, form, err)
+		s.renderEquipmentFormError(w, r, form, err)
 		return
 	}
 	item := model.Equipment{
@@ -336,17 +336,17 @@ func (s *Server) saveEquipment(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: time.Now().UTC(),
 	}
 	if form.ID != "" {
-		old, getErr := s.store.GetEquipment(s.companyID, form.ID)
+		old, getErr := s.store.GetEquipment(companyIDForRequest(s, r), form.ID)
 		if getErr != nil {
-			s.renderEquipmentFormError(w, form, storage.ErrNotFound)
+			s.renderEquipmentFormError(w, r, form, storage.ErrNotFound)
 			return
 		}
 		item.CreatedAt = old.CreatedAt
 	} else {
 		item.CreatedAt = item.UpdatedAt
 	}
-	if err := s.store.SaveEquipment(s.companyID, item); err != nil {
-		s.renderEquipmentFormError(w, form, err)
+	if err := s.store.SaveEquipment(companyIDForRequest(s, r), item); err != nil {
+		s.renderEquipmentFormError(w, r, form, err)
 		return
 	}
 	http.Redirect(w, r, "/equipment?saved=1", http.StatusSeeOther)
@@ -361,7 +361,7 @@ func (s *Server) deleteEquipment(w http.ResponseWriter, r *http.Request) {
 		s.renderEquipmentList(w, r, "Не указан станок для удаления.", http.StatusBadRequest)
 		return
 	}
-	if err := s.store.DeleteEquipment(s.companyID, id); err != nil {
+	if err := s.store.DeleteEquipment(companyIDForRequest(s, r), id); err != nil {
 		s.renderEquipmentList(w, r, actionError(err), http.StatusConflict)
 		return
 	}
@@ -369,11 +369,11 @@ func (s *Server) deleteEquipment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderMaterialList(w http.ResponseWriter, r *http.Request, message string, status int) {
-	s.setCSRFCookie(w)
+	s.setCSRFCookie(w, r)
 	if message == "" {
 		message = flashMessage(r)
 	}
-	snapshot, err := s.store.Snapshot(s.companyID)
+	snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 	if err != nil {
 		s.writeInternalError(w, "list materials", err)
 		return
@@ -386,15 +386,15 @@ func (s *Server) renderMaterialList(w http.ResponseWriter, r *http.Request, mess
 	for _, item := range snapshot.Materials {
 		items = append(items, materialListRow{Material: item, Category: materialCategoryLabel(item.Category)})
 	}
-	s.render(w, "materials.html", status, materialListPage{
+	s.render(w, r, "materials.html", status, materialListPage{
 		pageBase: base,
 		Items:    items,
 	})
 }
 
 func (s *Server) renderMaterialForm(w http.ResponseWriter, r *http.Request, create bool) {
-	s.setCSRFCookie(w)
-	snapshot, err := s.store.Snapshot(s.companyID)
+	s.setCSRFCookie(w, r)
+	snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 	if err != nil {
 		s.writeInternalError(w, "load material form", err)
 		return
@@ -423,7 +423,7 @@ func (s *Server) renderMaterialForm(w http.ResponseWriter, r *http.Request, crea
 			return
 		}
 	}
-	s.render(w, "material-form.html", http.StatusOK, materialFormPage{
+	s.render(w, r, "material-form.html", http.StatusOK, materialFormPage{
 		pageBase: s.basePage(title, "materials", "", ""),
 		Form:     form,
 	})
@@ -456,7 +456,7 @@ func (s *Server) saveMaterial(w http.ResponseWriter, r *http.Request) {
 		id, err = newRecordID("material")
 	}
 	if err != nil {
-		s.renderMaterialFormError(w, form, err)
+		s.renderMaterialFormError(w, r, form, err)
 		return
 	}
 	item := model.Material{
@@ -466,17 +466,17 @@ func (s *Server) saveMaterial(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: time.Now().UTC(),
 	}
 	if form.ID != "" {
-		old, findErr := findMaterial(s.store, s.companyID, form.ID)
+		old, findErr := findMaterial(s.store, companyIDForRequest(s, r), form.ID)
 		if findErr != nil {
-			s.renderMaterialFormError(w, form, storage.ErrNotFound)
+			s.renderMaterialFormError(w, r, form, storage.ErrNotFound)
 			return
 		}
 		item.CreatedAt = old.CreatedAt
 	} else {
 		item.CreatedAt = item.UpdatedAt
 	}
-	if err := s.store.SaveMaterial(s.companyID, item); err != nil {
-		s.renderMaterialFormError(w, form, err)
+	if err := s.store.SaveMaterial(companyIDForRequest(s, r), item); err != nil {
+		s.renderMaterialFormError(w, r, form, err)
 		return
 	}
 	http.Redirect(w, r, "/materials?saved=1", http.StatusSeeOther)
@@ -487,7 +487,7 @@ func (s *Server) deleteMaterial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.FormValue("id")
-	if err := s.store.DeleteMaterial(s.companyID, id); err != nil {
+	if err := s.store.DeleteMaterial(companyIDForRequest(s, r), id); err != nil {
 		s.renderMaterialList(w, r, actionError(err), http.StatusConflict)
 		return
 	}
@@ -495,11 +495,11 @@ func (s *Server) deleteMaterial(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderStockBlankList(w http.ResponseWriter, r *http.Request, message string, status int) {
-	s.setCSRFCookie(w)
+	s.setCSRFCookie(w, r)
 	if message == "" {
 		message = flashMessage(r)
 	}
-	snapshot, err := s.store.Snapshot(s.companyID)
+	snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 	if err != nil {
 		s.writeInternalError(w, "list stock blanks", err)
 		return
@@ -551,15 +551,15 @@ func (s *Server) renderStockBlankList(w http.ResponseWriter, r *http.Request, me
 	if status >= http.StatusBadRequest {
 		base.Error, base.Flash = message, ""
 	}
-	s.render(w, "stock-blanks.html", status, stockBlankListPage{
+	s.render(w, r, "stock-blanks.html", status, stockBlankListPage{
 		pageBase: base,
 		Items:    rows,
 	})
 }
 
 func (s *Server) renderStockBlankForm(w http.ResponseWriter, r *http.Request, create bool) {
-	s.setCSRFCookie(w)
-	snapshot, err := s.store.Snapshot(s.companyID)
+	s.setCSRFCookie(w, r)
+	snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 	if err != nil {
 		s.writeInternalError(w, "load stock blank form", err)
 		return
@@ -588,7 +588,7 @@ func (s *Server) renderStockBlankForm(w http.ResponseWriter, r *http.Request, cr
 			return
 		}
 	}
-	s.render(w, "stock-blank-form.html", http.StatusOK, stockBlankFormPage{
+	s.render(w, r, "stock-blank-form.html", http.StatusOK, stockBlankFormPage{
 		pageBase: s.basePage(title, "blanks", "", ""),
 		Form:     form, Materials: snapshot.Materials,
 	})
@@ -641,21 +641,21 @@ func (s *Server) saveStockBlank(w http.ResponseWriter, r *http.Request) {
 		blank.ID, err = newRecordID("blank")
 	}
 	if err != nil {
-		s.renderStockBlankFormError(w, form, err)
+		s.renderStockBlankFormError(w, r, form, err)
 		return
 	}
 	if form.ID != "" {
-		old, findErr := findStockBlank(s.store, s.companyID, form.ID)
+		old, findErr := findStockBlank(s.store, companyIDForRequest(s, r), form.ID)
 		if findErr != nil {
-			s.renderStockBlankFormError(w, form, storage.ErrNotFound)
+			s.renderStockBlankFormError(w, r, form, storage.ErrNotFound)
 			return
 		}
 		blank.CreatedAt = old.CreatedAt
 	} else {
 		blank.CreatedAt = blank.UpdatedAt
 	}
-	if err := s.store.SaveStockBlank(s.companyID, blank); err != nil {
-		s.renderStockBlankFormError(w, form, err)
+	if err := s.store.SaveStockBlank(companyIDForRequest(s, r), blank); err != nil {
+		s.renderStockBlankFormError(w, r, form, err)
 		return
 	}
 	http.Redirect(w, r, "/stock-blanks?saved=1", http.StatusSeeOther)
@@ -665,7 +665,7 @@ func (s *Server) deleteStockBlank(w http.ResponseWriter, r *http.Request) {
 	if !s.parseMutationForm(w, r) {
 		return
 	}
-	if err := s.store.DeleteStockBlank(s.companyID, r.FormValue("id")); err != nil {
+	if err := s.store.DeleteStockBlank(companyIDForRequest(s, r), r.FormValue("id")); err != nil {
 		s.renderStockBlankList(w, r, actionError(err), http.StatusConflict)
 		return
 	}
@@ -673,11 +673,11 @@ func (s *Server) deleteStockBlank(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderCompany(w http.ResponseWriter, r *http.Request, message string, status int) {
-	s.setCSRFCookie(w)
+	s.setCSRFCookie(w, r)
 	if message == "" {
 		message = flashMessage(r)
 	}
-	snapshot, err := s.store.Snapshot(s.companyID)
+	snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 	if err != nil {
 		s.writeInternalError(w, "load company settings", err)
 		return
@@ -686,7 +686,7 @@ func (s *Server) renderCompany(w http.ResponseWriter, r *http.Request, message s
 	if status >= http.StatusBadRequest {
 		base.Error, base.Flash = message, ""
 	}
-	s.render(w, "company.html", status, companyPage{
+	s.render(w, r, "company.html", status, companyPage{
 		pageBase: base,
 		Company:  snapshot.Company, Settings: snapshot.Settings,
 	})
@@ -707,7 +707,7 @@ func (s *Server) saveCompany(w http.ResponseWriter, r *http.Request) {
 		s.renderCompany(w, r, err.Error(), http.StatusBadRequest)
 		return
 	}
-	snapshot, err := s.store.Snapshot(s.companyID)
+	snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 	if err != nil {
 		s.writeInternalError(w, "load company before save", err)
 		return
@@ -723,35 +723,35 @@ func (s *Server) saveCompany(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/company?saved=1", http.StatusSeeOther)
 }
 
-func (s *Server) renderEquipmentFormError(w http.ResponseWriter, form equipmentForm, err error) {
-	s.setCSRFCookie(w)
-	snapshot, loadErr := s.store.Snapshot(s.companyID)
+func (s *Server) renderEquipmentFormError(w http.ResponseWriter, r *http.Request, form equipmentForm, err error) {
+	s.setCSRFCookie(w, r)
+	snapshot, loadErr := s.store.Snapshot(companyIDForRequest(s, r))
 	if loadErr != nil {
 		s.writeInternalError(w, "reload equipment form", loadErr)
 		return
 	}
-	s.render(w, "equipment-form.html", http.StatusBadRequest, equipmentFormPage{
+	s.render(w, r, "equipment-form.html", http.StatusBadRequest, equipmentFormPage{
 		pageBase: s.basePage("Оборудование", "equipment", "", friendlyError(err)),
 		Form:     form, Models: snapshot.EquipmentModels,
 	})
 }
 
-func (s *Server) renderMaterialFormError(w http.ResponseWriter, form materialForm, err error) {
-	s.setCSRFCookie(w)
-	s.render(w, "material-form.html", http.StatusBadRequest, materialFormPage{
+func (s *Server) renderMaterialFormError(w http.ResponseWriter, r *http.Request, form materialForm, err error) {
+	s.setCSRFCookie(w, r)
+	s.render(w, r, "material-form.html", http.StatusBadRequest, materialFormPage{
 		pageBase: s.basePage("Материал", "materials", "", friendlyError(err)),
 		Form:     form,
 	})
 }
 
-func (s *Server) renderStockBlankFormError(w http.ResponseWriter, form stockBlankForm, err error) {
-	s.setCSRFCookie(w)
-	snapshot, loadErr := s.store.Snapshot(s.companyID)
+func (s *Server) renderStockBlankFormError(w http.ResponseWriter, r *http.Request, form stockBlankForm, err error) {
+	s.setCSRFCookie(w, r)
+	snapshot, loadErr := s.store.Snapshot(companyIDForRequest(s, r))
 	if loadErr != nil {
 		s.writeInternalError(w, "reload stock blank form", loadErr)
 		return
 	}
-	s.render(w, "stock-blank-form.html", http.StatusBadRequest, stockBlankFormPage{
+	s.render(w, r, "stock-blank-form.html", http.StatusBadRequest, stockBlankFormPage{
 		pageBase: s.basePage("Заготовка", "blanks", "", friendlyError(err)),
 		Form:     form, Materials: snapshot.Materials,
 	})
@@ -763,19 +763,44 @@ func (s *Server) parseMutationForm(w http.ResponseWriter, r *http.Request) bool 
 		http.Error(w, "Некорректные данные формы.", http.StatusBadRequest)
 		return false
 	}
+	session, ok := serverSession{}, false
+	if s.authentication != nil {
+		session, ok = s.sessionFromRequest(r)
+	}
+	if s.authentication != nil && (!ok || !s.validCSRF(r, session)) {
+		http.Error(w, "Форма устарела или не прошла проверку безопасности. Обновите страницу и повторите попытку.", http.StatusForbidden)
+		return false
+	}
 	cookie, err := r.Cookie("cnc_csrf")
-	if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(s.csrfToken)) != 1 ||
-		subtle.ConstantTimeCompare([]byte(r.FormValue("csrf_token")), []byte(s.csrfToken)) != 1 {
+	expected := s.csrfToken
+	if s.authentication != nil {
+		expected = session.CSRFToken
+	}
+	if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(expected)) != 1 ||
+		subtle.ConstantTimeCompare([]byte(r.FormValue("csrf_token")), []byte(expected)) != 1 {
 		http.Error(w, "Форма устарела или не прошла проверку безопасности. Обновите страницу и повторите попытку.", http.StatusForbidden)
 		return false
 	}
 	return true
 }
 
-func (s *Server) setCSRFCookie(w http.ResponseWriter) {
+func (s *Server) setCSRFCookie(w http.ResponseWriter, r *http.Request) {
+	token := s.csrfToken
+	expires := time.Time{}
+	maxAge := 0
+	if s.authentication != nil {
+		session, ok := s.sessionFromRequest(r)
+		if !ok {
+			return
+		}
+		token = session.CSRFToken
+		expires = session.ExpiresAt
+		maxAge = int(time.Until(session.ExpiresAt).Seconds())
+	}
 	http.SetCookie(w, &http.Cookie{
-		Name: "cnc_csrf", Value: s.csrfToken, Path: "/", HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		Name: csrfCookieName, Value: token, Path: "/", HttpOnly: true,
+		Secure: s.secureCookie(r), SameSite: http.SameSiteStrictMode,
+		Expires: expires, MaxAge: maxAge,
 	})
 }
 

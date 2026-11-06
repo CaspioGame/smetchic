@@ -41,7 +41,7 @@ func run(args []string) error {
 		repository := postgres.NewLifecycleRepository(db)
 		service := application.NewService(repository, repository)
 		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), postgres.DefaultPingTimeout())
-		company, err := service.InitializeDemoCompany(bootstrapCtx)
+		_, err = service.InitializeDemoCompany(bootstrapCtx)
 		bootstrapCancel()
 		if err != nil {
 			return fmt.Errorf("не удалось подготовить компанию PostgreSQL: %w", err)
@@ -53,7 +53,8 @@ func run(args []string) error {
 			log.Printf("legacy JSON cabinet is unavailable; PostgreSQL lifecycle remains enabled: %v", err)
 			store = nil
 		}
-		handler, err := web.NewLifecycleCabinetHandler(store, company, service)
+		authentication := application.NewAuthenticationService(repository)
+		handler, err := web.NewAuthenticatedLifecycleCabinetHandler(store, service, authentication)
 		if err != nil {
 			return fmt.Errorf("не удалось подготовить Web-интерфейс: %w", err)
 		}

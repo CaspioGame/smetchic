@@ -38,6 +38,10 @@
     .notice.warning { background: #fff5e8; color: #754300; }
     .summary { font-size: 1.08rem; }
     .inline-form { display: inline; }
+    .user-session { margin: 24px 8px 0; color: #d7deeb; font-size: .9rem; }
+    .user-session p { overflow-wrap: anywhere; }
+    .user-session button { background: #2b3a57; }
+    .login-content { max-width: 520px; padding-top: 12vh; }
     @media (max-width: 760px) {
       .app { grid-template-columns: 1fr; }
       .sidebar { padding: 14px; }
@@ -62,5 +66,14 @@
     <a href="/stock-blanks" {{if eq .Active "blanks"}}class="active"{{end}}>Заготовки</a>
     <a href="/company" {{if eq .Active "company"}}class="active"{{end}}>Компания и настройки</a>
   </nav>
+  {{if .Authenticated}}
+  <div class="user-session">
+    <p>{{.UserName}}</p>
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="secondary" type="submit">Выйти</button>
+    </form>
+  </div>
+  {{end}}
 </aside>
 {{end}}

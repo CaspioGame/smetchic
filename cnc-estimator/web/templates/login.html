@@ -1,0 +1,34 @@
+{{define "login.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body>
+  <main class="content login-content">
+    <section class="card">
+      <h1>Вход в CNC Estimator</h1>
+      {{if .Authenticated}}
+      <p class="muted">Пользователь: {{.UserName}}</p>
+      {{else}}
+      <p class="muted">Войдите под учётной записью, созданной администратором.</p>
+      {{end}}
+      {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+      {{if .Authenticated}}
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button type="submit">Выйти</button>
+      </form>
+      {{else}}
+      <form method="post" action="/login">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required>
+        <label for="password">Пароль</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Войти</button>
+      </form>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

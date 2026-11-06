@@ -24,12 +24,42 @@ type Server struct {
 	companyID       string
 	company         model.Company
 	lifecycle       *application.Service
+	authentication  *application.AuthenticationService
+	sessions        *sessionStore
 	defaultSettings model.EstimateSettings
 	templates       *template.Template
 	csrfToken       string
 }
 
 func NewLifecycleCabinetHandler(store *storage.Store, company model.Company, lifecycle *application.Service) (http.Handler, error) {
+	server, err := newLifecycleServer(store, company, lifecycle)
+	if err != nil {
+		return nil, err
+	}
+	return server, nil
+}
+
+func NewAuthenticatedLifecycleCabinetHandler(
+	store *storage.Store,
+	lifecycle *application.Service,
+	authentication *application.AuthenticationService,
+) (http.Handler, error) {
+	if lifecycle == nil {
+		return nil, fmt.Errorf("PostgreSQL lifecycle service is required")
+	}
+	if authentication == nil {
+		return nil, fmt.Errorf("authentication service is required")
+	}
+	server, err := newLifecycleServer(store, model.Company{}, lifecycle)
+	if err != nil {
+		return nil, err
+	}
+	server.authentication = authentication
+	server.sessions = newSessionStore()
+	return server, nil
+}
+
+func newLifecycleServer(store *storage.Store, company model.Company, lifecycle *application.Service) (*Server, error) {
 	legacyCompanyID := company.ID
 	defaults := model.EstimateSettings{}
 	if store != nil {
@@ -105,7 +135,8 @@ func newServer(catalog *equipment.Catalog, store *storage.Store, companyID strin
 	}, nil
 }
 
-func (s *Server) render(w http.ResponseWriter, name string, status int, data any) {
+func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, status int, data any) {
+	data = s.applyPageSecurity(r, data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {

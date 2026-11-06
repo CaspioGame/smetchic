@@ -182,6 +182,11 @@ func TestLifecycleHandlerDoesNotRequireJSONStore(t *testing.T) {
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/projects" {
 		t.Fatalf("GET / without JSON store status = %d, location %q", response.Code, response.Header().Get("Location"))
 	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/", strings.NewReader("")))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("POST / without JSON store status = %d, want %d", response.Code, http.StatusNotFound)
+	}
 }
 
 func TestLifecyclePartUploadStoresOriginalAndHash(t *testing.T) {

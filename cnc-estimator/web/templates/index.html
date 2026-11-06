@@ -13,6 +13,7 @@
       {{if .Error}}<div class="notice error" role="alert"><strong>Ошибка расчёта</strong><br>{{.Error}}</div>{{end}}
       <section class="card">
         <form method="POST" action="/" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
           <label for="part_file">Файл детали (.part)</label>
           <input id="part_file" type="file" name="part_file" accept=".part" required>
           <fieldset>

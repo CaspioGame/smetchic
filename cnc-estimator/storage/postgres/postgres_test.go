@@ -27,6 +27,8 @@ func TestMigrationExistsAndIncludesRequiredSchema(t *testing.T) {
 	for _, expected := range []string{
 		"CREATE TABLE companies",
 		"CREATE TABLE users",
+		"password_hash TEXT NOT NULL",
+		"users_email_lower_uq",
 		"CREATE TABLE company_memberships",
 		"CREATE TABLE company_settings",
 		"CREATE TABLE equipment_models",
@@ -67,6 +69,23 @@ func TestProjectLifecycleMigrationExistsAndPreservesVersionImmutability(t *testi
 	} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("project lifecycle migration does not contain %q", expected)
+		}
+	}
+}
+
+func TestAuthMigrationAddsActiveFlagWithoutDuplicatingExistingAuthColumns(t *testing.T) {
+	migrationPath := filepath.Join("..", "..", "migrations", "003_auth.sql")
+	migration, err := os.ReadFile(migrationPath)
+	if err != nil {
+		t.Fatalf("read auth migration: %v", err)
+	}
+	text := string(migration)
+	for _, expected := range []string{
+		"ALTER TABLE users",
+		"ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("auth migration does not contain %q", expected)
 		}
 	}
 }
@@ -160,7 +179,7 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open isolated integration connection: %v", err)
 	}
-	migrations := []string{"001_initial.sql", "002_project_lifecycle.sql"}
+	migrations := []string{"001_initial.sql", "002_project_lifecycle.sql", "003_auth.sql"}
 	for _, migrationName := range migrations {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", migrationName))
 		if err != nil {
@@ -177,6 +196,36 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	settings := model.CompanySettings{CompanyID: company.ID, Currency: "RUB", DefaultMarkupPercent: 12.5}
 	if err := service.EnsureCompany(ctx, company, settings); err != nil {
 		t.Fatalf("create company and settings: %v", err)
+	}
+	authentication := application.NewAuthenticationService(repository)
+	authUser, err := authentication.CreateUser(
+		ctx, "owner@example.test", "Test owner", "integration-password",
+		company.ID, model.CompanyRoleOwner,
+	)
+	if err != nil {
+		t.Fatalf("create authenticated user: %v", err)
+	}
+	if _, err := authentication.CreateUser(
+		ctx, "OWNER@example.test", "Duplicate owner", "integration-password",
+		company.ID, model.CompanyRoleOwner,
+	); err == nil {
+		t.Fatal("duplicate case-insensitive email was accepted")
+	}
+	if _, err := authentication.Login(ctx, "OWNER@example.test", "integration-password"); err != nil {
+		t.Fatalf("login with persisted password hash: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE users SET is_active = FALSE WHERE id = $1`, authUser.ID); err != nil {
+		t.Fatalf("deactivate auth test user: %v", err)
+	}
+	if _, err := authentication.Login(ctx, "owner@example.test", "integration-password"); !errors.Is(err, application.ErrInvalidCredentials) {
+		t.Fatalf("inactive user login error = %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE users SET is_active = TRUE WHERE id = $1`, authUser.ID); err != nil {
+		t.Fatalf("reactivate auth test user: %v", err)
+	}
+	memberships, err := repository.ListUserMemberships(ctx, authUser.ID)
+	if err != nil || len(memberships) != 1 || memberships[0].Company.ID != company.ID {
+		t.Fatalf("user memberships = %#v, error = %v", memberships, err)
 	}
 	equipmentModel := model.EquipmentModel{
 		ID: "integration-model", Type: model.EquipmentMilling,
@@ -263,6 +312,11 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	loadedCompany, err := service.GetCompany(ctx, company.ID)
 	if err != nil || loadedCompany.Name != company.Name {
 		t.Fatalf("company after reconnect = %#v, error = %v", loadedCompany, err)
+	}
+	persistedUser, err := repository.GetAuthUserByID(ctx, authUser.ID)
+	if err != nil || persistedUser.User.Email != authUser.Email || !persistedUser.Active ||
+		persistedUser.PasswordHash == "integration-password" {
+		t.Fatalf("user after reconnect = %#v, error = %v", persistedUser, err)
 	}
 	loadedSettings, err := service.GetCompanySettings(ctx, company.ID)
 	if err != nil || loadedSettings.Currency != settings.Currency {

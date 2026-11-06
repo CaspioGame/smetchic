@@ -24,6 +24,8 @@ type pageBase struct {
 	Title            string
 	Active           string
 	CSRF             string
+	Authenticated    bool
+	UserName         string
 	Flash            string
 	Error            string
 	LifecycleEnabled bool
@@ -57,6 +59,22 @@ type operationRow struct {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.authentication != nil {
+		if r.URL.Path == "/login" {
+			s.serveLogin(w, r)
+			return
+		}
+		if r.URL.Path == "/logout" {
+			s.requireAuth(http.HandlerFunc(s.logout)).ServeHTTP(w, r)
+			return
+		}
+		s.requireAuth(http.HandlerFunc(s.serveProtected)).ServeHTTP(w, r)
+		return
+	}
+	s.serveProtected(w, r)
+}
+
+func (s *Server) serveProtected(w http.ResponseWriter, r *http.Request) {
 	if s.lifecycle != nil && s.serveLifecycle(w, r) {
 		return
 	}
@@ -64,8 +82,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.serveCabinet(w, r)
 		return
 	}
-	if s.lifecycle != nil && r.URL.Path == "/" && r.Method == http.MethodGet {
-		http.Redirect(w, r, "/projects", http.StatusSeeOther)
+	if s.lifecycle != nil && r.URL.Path == "/" {
+		if r.Method == http.MethodGet {
+			http.Redirect(w, r, "/projects", http.StatusSeeOther)
+		} else {
+			http.NotFound(w, r)
+		}
 		return
 	}
 	if r.URL.Path != "/" {
@@ -75,7 +97,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		s.render(w, "index.html", http.StatusOK, s.defaultIndexPage())
+		s.setCSRFCookie(w, r)
+		s.render(w, r, "index.html", http.StatusOK, s.defaultIndexPage(r))
 	case http.MethodPost:
 		s.calculate(w, r)
 	default:
@@ -89,36 +112,40 @@ func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(memoryFormSize); err != nil {
 		var maxBytesError *http.MaxBytesError
 		if errors.As(err, &maxBytesError) {
-			s.renderError(w, http.StatusRequestEntityTooLarge, "Файл слишком большой. Максимальный размер — 2 МБ.")
+			s.renderError(w, r, http.StatusRequestEntityTooLarge, "Файл слишком большой. Максимальный размер — 2 МБ.")
 			return
 		}
-		s.renderError(w, http.StatusBadRequest, "Не удалось прочитать загруженный файл. Проверьте multipart-форму.")
+		s.renderError(w, r, http.StatusBadRequest, "Не удалось прочитать загруженный файл. Проверьте multipart-форму.")
 		return
 	}
 	if r.MultipartForm != nil {
 		defer r.MultipartForm.RemoveAll()
 	}
+	if s.authentication != nil && !s.validCSRFFromForm(r) {
+		http.Error(w, "Форма устарела или не прошла проверку безопасности. Обновите страницу.", http.StatusForbidden)
+		return
+	}
 
 	form := indexPage{
 		pageBase: pageBase{
-			Title: "Расчёт сметы", Active: "estimate", CSRF: s.csrfToken,
+			Title: "Расчёт сметы", Active: "estimate",
 			LifecycleEnabled: s.lifecycle != nil,
 		},
 		SelectedEquipment: r.FormValue("equipment_id"),
 		MarkupPercent:     r.FormValue("markup_percent"),
-		Equipment:         s.equipmentList(),
+		Equipment:         s.equipmentList(r),
 	}
-	equipmentItem, settings, err := s.parseEstimateSettings(form)
+	equipmentItem, settings, err := s.parseEstimateSettings(r, form)
 	if err != nil {
 		form.Error = friendlyError(err)
-		s.render(w, "index.html", http.StatusBadRequest, form)
+		s.render(w, r, "index.html", http.StatusBadRequest, form)
 		return
 	}
 
 	file, header, err := r.FormFile("part_file")
 	if err != nil {
 		form.Error = "Выберите файл .part для расчёта."
-		s.render(w, "index.html", http.StatusBadRequest, form)
+		s.render(w, r, "index.html", http.StatusBadRequest, form)
 		return
 	}
 	defer file.Close()
@@ -126,34 +153,34 @@ func (s *Server) calculate(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(header.Filename)
 	if filename == "" || filename == "." {
 		form.Error = "Имя загруженного файла некорректно."
-		s.render(w, "index.html", http.StatusBadRequest, form)
+		s.render(w, r, "index.html", http.StatusBadRequest, form)
 		return
 	}
 
 	part, err := parser.Parse(file, filename)
 	if err != nil {
 		form.Error = fmt.Sprintf("Не удалось обработать файл %s: %v", filename, err)
-		s.render(w, "index.html", http.StatusBadRequest, form)
+		s.render(w, r, "index.html", http.StatusBadRequest, form)
 		return
 	}
 	estimate, err := estimator.Calculate(part, equipmentItem, settings)
 	if err != nil {
 		form.Error = fmt.Sprintf("Не удалось рассчитать файл %s: %v", filename, err)
-		s.render(w, "index.html", http.StatusBadRequest, form)
+		s.render(w, r, "index.html", http.StatusBadRequest, form)
 		return
 	}
 
 	page := buildResultPage(estimate)
 	page.LifecycleEnabled = s.lifecycle != nil
-	s.render(w, "result.html", http.StatusOK, page)
+	s.render(w, r, "result.html", http.StatusOK, page)
 }
 
-func (s *Server) defaultIndexPage() indexPage {
-	equipmentItems := s.equipmentList()
+func (s *Server) defaultIndexPage(r *http.Request) indexPage {
+	equipmentItems := s.equipmentList(r)
 	equipmentID := s.defaultSettings.EquipmentID
 	markup := s.defaultSettings.MarkupPercent
 	if s.store != nil {
-		if snapshot, err := s.store.Snapshot(s.companyID); err == nil {
+		if snapshot, err := s.store.Snapshot(companyIDForRequest(s, r)); err == nil {
 			markup = snapshot.Settings.DefaultMarkupPercent
 			for _, item := range equipmentItems {
 				if item.Status == model.EquipmentStatusActive {
@@ -164,23 +191,23 @@ func (s *Server) defaultIndexPage() indexPage {
 		}
 	}
 	return indexPage{
-		pageBase:          pageBase{Title: "Расчёт сметы", Active: "estimate", CSRF: s.csrfToken, LifecycleEnabled: s.lifecycle != nil},
+		pageBase:          pageBase{Title: "Расчёт сметы", Active: "estimate", LifecycleEnabled: s.lifecycle != nil},
 		SelectedEquipment: equipmentID,
 		MarkupPercent:     formatNumber(markup),
 		Equipment:         equipmentItems,
 	}
 }
 
-func (s *Server) renderError(w http.ResponseWriter, status int, message string) {
-	page := s.defaultIndexPage()
+func (s *Server) renderError(w http.ResponseWriter, r *http.Request, status int, message string) {
+	page := s.defaultIndexPage(r)
 	page.Error = message
-	s.render(w, "index.html", status, page)
+	s.render(w, r, "index.html", status, page)
 }
 
-func (s *Server) parseEstimateSettings(form indexPage) (model.Equipment, model.EstimateSettings, error) {
+func (s *Server) parseEstimateSettings(r *http.Request, form indexPage) (model.Equipment, model.EstimateSettings, error) {
 	equipmentItem, err := s.catalog.GetByID(form.SelectedEquipment)
 	if s.store != nil {
-		equipmentItem, err = s.store.GetEquipment(s.companyID, form.SelectedEquipment)
+		equipmentItem, err = s.store.GetEquipment(companyIDForRequest(s, r), form.SelectedEquipment)
 		if err != nil && errors.Is(err, storage.ErrNotFound) {
 			return model.Equipment{}, model.EstimateSettings{}, fmt.Errorf("оборудование с ID %q не найдено", form.SelectedEquipment)
 		}
@@ -293,9 +320,9 @@ func buildResultPage(estimate model.Estimate) resultPage {
 	}
 }
 
-func (s *Server) equipmentList() []model.Equipment {
+func (s *Server) equipmentList(r *http.Request) []model.Equipment {
 	if s.store != nil {
-		snapshot, err := s.store.Snapshot(s.companyID)
+		snapshot, err := s.store.Snapshot(companyIDForRequest(s, r))
 		if err != nil {
 			return nil
 		}

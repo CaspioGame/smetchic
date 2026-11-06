@@ -20,6 +20,7 @@ Apply the initial schema from the repository root:
 ```powershell
 psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/001_initial.sql
 psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/002_project_lifecycle.sql
+psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/003_auth.sql
 ```
 
 The SQL file is also compatible with `psql` on other operating systems.
@@ -45,6 +46,27 @@ available in its existing sections, but is no longer the lifecycle's source
 for company or estimate data. No JSON records are imported automatically.
 `go test ./...` runs isolated PostgreSQL lifecycle integration tests when
 `DATABASE_URL` is set.
+
+## User login
+
+The Web application uses PostgreSQL users and company memberships. Passwords
+are stored as bcrypt hashes. There is no public registration or seeded
+password. After starting the application once (which creates the demo company),
+create an owner interactively:
+
+```powershell
+go run ./cmd/createuser
+```
+
+Enter the company ID `demo-company`, an email and name, then choose one of the
+existing roles (`owner`, `admin`, `manager`, or `operator`). The password is
+read without terminal echo and is never accepted as a command-line argument.
+The Web login is at `http://localhost:8080/login`. Sessions are held server
+side, last 12 hours, and are invalidated when the application stops. A user
+with multiple company memberships is explicitly blocked until company
+selection is implemented; the application does not choose a tenant arbitrarily.
+The session cookie is HttpOnly and SameSite=Lax; Secure is enabled for HTTPS
+requests or when `APP_ENV=production`.
 
 ## Project lifecycle
 
