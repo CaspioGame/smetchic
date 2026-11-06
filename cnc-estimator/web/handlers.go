@@ -64,6 +64,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.serveCabinet(w, r)
 		return
 	}
+	if s.lifecycle != nil && r.URL.Path == "/" && r.Method == http.MethodGet {
+		http.Redirect(w, r, "/projects", http.StatusSeeOther)
+		return
+	}
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return

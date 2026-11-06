@@ -19,22 +19,25 @@ import (
 
 type lifecyclePage struct {
 	pageBase
-	View      string
-	Projects  []application.ProjectRecord
-	Project   application.ProjectRecord
-	Parts     []application.PartRecord
-	Part      application.PartRecord
-	Revisions []application.PartRevisionRecord
-	Revision  application.PartRevisionRecord
-	Estimates []application.EstimateRecord
-	Estimate  application.EstimateRecord
-	Versions  []application.EstimateVersionRecord
-	Version   application.EstimateVersionRecord
-	Result    model.Estimate
-	Equipment []model.Equipment
-	Markup    string
-	FormName  string
-	FormDesc  string
+	Company    model.Company
+	View       string
+	Projects   []application.ProjectRecord
+	Project    application.ProjectRecord
+	Parts      []application.PartRecord
+	Part       application.PartRecord
+	Revisions  []application.PartRevisionRecord
+	Revision   application.PartRevisionRecord
+	Estimates  []application.EstimateRecord
+	Estimate   application.EstimateRecord
+	Versions   []application.EstimateVersionRecord
+	Version    application.EstimateVersionRecord
+	Result     model.Estimate
+	Equipment  []model.Equipment
+	Markup     string
+	FormName   string
+	FormDesc   string
+	FormAction string
+	FormSubmit string
 }
 
 func (s *Server) serveLifecycle(w http.ResponseWriter, r *http.Request) bool {
@@ -57,9 +60,14 @@ func (s *Server) serveLifecycle(w http.ResponseWriter, r *http.Request) bool {
 	case r.URL.Path == "/projects/new" && r.Method == http.MethodGet:
 		s.setCSRFCookie(w)
 		page := s.lifecycleBase("Новый проект", "projects", "project-form")
+		page.FormAction, page.FormSubmit = "/projects/create", "Создать проект"
 		s.render(w, "lifecycle.html", http.StatusOK, page)
 	case r.URL.Path == "/projects/create" && r.Method == http.MethodPost:
 		s.createProject(w, r)
+	case len(segments) == 3 && segments[0] == "projects" && segments[2] == "edit" && r.Method == http.MethodGet:
+		s.editProject(w, r, segments[1])
+	case len(segments) == 3 && segments[0] == "projects" && segments[2] == "save" && r.Method == http.MethodPost:
+		s.updateProject(w, r, segments[1])
 	case len(segments) == 2 && segments[0] == "projects" && r.Method == http.MethodGet:
 		s.renderProject(w, r, segments[1])
 	case len(segments) == 4 && segments[0] == "projects" && segments[2] == "parts" && segments[3] == "upload" && r.Method == http.MethodPost:
@@ -84,7 +92,7 @@ func (s *Server) serveLifecycle(w http.ResponseWriter, r *http.Request) bool {
 
 func (s *Server) renderProjects(w http.ResponseWriter, r *http.Request) {
 	s.setCSRFCookie(w)
-	projects, err := s.lifecycle.ListProjects(r.Context(), s.companyID)
+	projects, err := s.lifecycle.ListProjects(r.Context(), s.company.ID)
 	if err != nil {
 		s.writeInternalError(w, "list PostgreSQL projects", err)
 		return
@@ -100,7 +108,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	description := strings.TrimSpace(r.FormValue("description"))
-	project, err := s.lifecycle.CreateProject(r.Context(), s.companyID, name, description)
+	project, err := s.lifecycle.CreateProject(r.Context(), s.company.ID, name, description)
 	if err != nil {
 		s.renderLifecycleError(w, "Новый проект", "project-form", err, name, description)
 		return
@@ -108,14 +116,55 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/projects/"+project.ID, http.StatusSeeOther)
 }
 
+func (s *Server) editProject(w http.ResponseWriter, r *http.Request, projectID string) {
+	s.setCSRFCookie(w)
+	project, err := s.lifecycle.GetProject(r.Context(), s.company.ID, projectID)
+	if err != nil {
+		s.lifecycleError(w, "load project for edit", err)
+		return
+	}
+	page := s.lifecycleBase("Редактирование проекта", "projects", "project-form")
+	page.Project = project
+	page.FormName, page.FormDesc = project.Name, project.Description
+	page.FormAction, page.FormSubmit = "/projects/"+project.ID+"/save", "Сохранить изменения"
+	s.render(w, "lifecycle.html", http.StatusOK, page)
+}
+
+func (s *Server) updateProject(w http.ResponseWriter, r *http.Request, projectID string) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	name, description := r.FormValue("name"), r.FormValue("description")
+	project, err := s.lifecycle.UpdateProject(r.Context(), s.company.ID, projectID, name, description)
+	if err != nil {
+		page := s.lifecycleBase("Редактирование проекта", "projects", "project-form")
+		page.Project = application.ProjectRecord{ID: projectID}
+		page.FormName, page.FormDesc = name, description
+		page.FormAction, page.FormSubmit = "/projects/"+projectID+"/save", "Сохранить изменения"
+		page.Error = lifecyclePublicError(err)
+		if !isLifecycleValidationError(err) && !errors.Is(err, application.ErrNotFound) {
+			page.Error = "Не удалось сохранить проект. Повторите попытку."
+			s.render(w, "lifecycle.html", http.StatusInternalServerError, page)
+			return
+		}
+		status := http.StatusBadRequest
+		if errors.Is(err, application.ErrNotFound) {
+			status = http.StatusNotFound
+		}
+		s.render(w, "lifecycle.html", status, page)
+		return
+	}
+	http.Redirect(w, r, "/projects/"+project.ID, http.StatusSeeOther)
+}
+
 func (s *Server) renderProject(w http.ResponseWriter, r *http.Request, projectID string) {
 	s.setCSRFCookie(w)
-	project, err := s.lifecycle.GetProject(r.Context(), s.companyID, projectID)
+	project, err := s.lifecycle.GetProject(r.Context(), s.company.ID, projectID)
 	if err != nil {
 		s.lifecycleError(w, "project", err)
 		return
 	}
-	parts, err := s.lifecycle.ListParts(r.Context(), s.companyID, projectID)
+	parts, err := s.lifecycle.ListParts(r.Context(), s.company.ID, projectID)
 	if err != nil {
 		s.writeInternalError(w, "list PostgreSQL project parts", err)
 		return
@@ -149,7 +198,7 @@ func (s *Server) uploadPartRevision(w http.ResponseWriter, r *http.Request, proj
 		http.Error(w, "Не удалось прочитать файл .part или он превышает ограничение 2 МБ.", http.StatusBadRequest)
 		return
 	}
-	_, revision, err := s.lifecycle.UploadRevision(r.Context(), s.companyID, projectID, application.RevisionUpload{
+	_, revision, err := s.lifecycle.UploadRevision(r.Context(), s.company.ID, projectID, application.RevisionUpload{
 		PartName: r.FormValue("part_name"), PartDescription: r.FormValue("part_description"),
 		SourceFilename: header.Filename, SourceContent: content,
 	})
@@ -162,17 +211,17 @@ func (s *Server) uploadPartRevision(w http.ResponseWriter, r *http.Request, proj
 
 func (s *Server) renderPart(w http.ResponseWriter, r *http.Request, partID string) {
 	s.setCSRFCookie(w)
-	part, err := s.lifecycle.GetPart(r.Context(), s.companyID, partID)
+	part, err := s.lifecycle.GetPart(r.Context(), s.company.ID, partID)
 	if err != nil {
 		s.lifecycleError(w, "get part", err)
 		return
 	}
-	revisions, err := s.lifecycle.ListPartRevisions(r.Context(), s.companyID, partID)
+	revisions, err := s.lifecycle.ListPartRevisions(r.Context(), s.company.ID, partID)
 	if err != nil {
 		s.writeInternalError(w, "list part revisions", err)
 		return
 	}
-	project, err := s.lifecycle.GetProject(r.Context(), s.companyID, part.ProjectID)
+	project, err := s.lifecycle.GetProject(r.Context(), s.company.ID, part.ProjectID)
 	if err != nil {
 		s.writeInternalError(w, "get part project", err)
 		return
@@ -184,25 +233,30 @@ func (s *Server) renderPart(w http.ResponseWriter, r *http.Request, partID strin
 
 func (s *Server) renderRevision(w http.ResponseWriter, r *http.Request, revisionID string) {
 	s.setCSRFCookie(w)
-	detail, err := s.lifecycle.GetRevisionEstimate(r.Context(), s.companyID, revisionID)
+	detail, err := s.lifecycle.GetRevisionEstimate(r.Context(), s.company.ID, revisionID)
 	if err != nil {
 		s.lifecycleError(w, "get part revision", err)
 		return
 	}
-	snapshot, err := s.store.Snapshot(s.companyID)
+	equipment, err := s.lifecycle.ListEquipment(r.Context(), s.company.ID)
 	if err != nil {
-		s.writeInternalError(w, "load company settings for estimate", err)
+		s.lifecycleError(w, "load PostgreSQL equipment for estimate", err)
+		return
+	}
+	settings, err := s.lifecycle.GetCompanySettings(r.Context(), s.company.ID)
+	if err != nil {
+		s.lifecycleError(w, "load PostgreSQL company settings for estimate", err)
 		return
 	}
 	page := s.lifecycleBase(detail.Part.Name+" — ревизия", "projects", "revision")
 	page.Project, page.Part, page.Revision = detail.Project, detail.Part, detail.Revision
-	page.Estimates, page.Equipment = detail.Estimates, activeEquipment(snapshot.Equipment)
-	page.Markup = formatNumber(snapshot.Settings.DefaultMarkupPercent)
+	page.Estimates, page.Equipment = detail.Estimates, activeEquipment(equipment)
+	page.Markup = formatNumber(settings.DefaultMarkupPercent)
 	s.render(w, "lifecycle.html", http.StatusOK, page)
 }
 
 func (s *Server) downloadRevisionSource(w http.ResponseWriter, r *http.Request, revisionID string) {
-	detail, err := s.lifecycle.GetRevisionEstimate(r.Context(), s.companyID, revisionID)
+	detail, err := s.lifecycle.GetRevisionEstimate(r.Context(), s.company.ID, revisionID)
 	if err != nil {
 		s.lifecycleError(w, "download part revision source", err)
 		return
@@ -229,14 +283,14 @@ func (s *Server) calculateRevision(w http.ResponseWriter, r *http.Request, revis
 		return
 	}
 	_, version, err := s.lifecycle.Calculate(
-		r.Context(), s.companyID, revisionID, r.FormValue("estimate_name"),
+		r.Context(), s.company.ID, revisionID, r.FormValue("estimate_name"),
 		r.FormValue("equipment_id"), markup,
 	)
 	if err != nil {
 		s.renderRevisionLifecycleError(w, r, revisionID, err)
 		return
 	}
-	estimate, err := s.lifecycle.GetEstimate(r.Context(), s.companyID, version.EstimateID)
+	estimate, err := s.lifecycle.GetEstimate(r.Context(), s.company.ID, version.EstimateID)
 	if err != nil {
 		s.writeInternalError(w, "get newly saved estimate", err)
 		return
@@ -246,12 +300,12 @@ func (s *Server) calculateRevision(w http.ResponseWriter, r *http.Request, revis
 
 func (s *Server) renderEstimate(w http.ResponseWriter, r *http.Request, estimateID string) {
 	s.setCSRFCookie(w)
-	estimate, err := s.lifecycle.GetEstimate(r.Context(), s.companyID, estimateID)
+	estimate, err := s.lifecycle.GetEstimate(r.Context(), s.company.ID, estimateID)
 	if err != nil {
 		s.lifecycleError(w, "get estimate", err)
 		return
 	}
-	versions, err := s.lifecycle.ListEstimateVersions(r.Context(), s.companyID, estimateID)
+	versions, err := s.lifecycle.ListEstimateVersions(r.Context(), s.company.ID, estimateID)
 	if err != nil {
 		s.writeInternalError(w, "list estimate versions", err)
 		return
@@ -263,7 +317,7 @@ func (s *Server) renderEstimate(w http.ResponseWriter, r *http.Request, estimate
 
 func (s *Server) renderEstimateVersion(w http.ResponseWriter, r *http.Request, estimateID, versionID string) {
 	s.setCSRFCookie(w)
-	detail, err := s.lifecycle.GetEstimateVersion(r.Context(), s.companyID, estimateID, versionID)
+	detail, err := s.lifecycle.GetEstimateVersion(r.Context(), s.company.ID, estimateID, versionID)
 	if err != nil {
 		s.lifecycleError(w, "get estimate version", err)
 		return
@@ -283,32 +337,32 @@ func (s *Server) lifecycleBase(title, active, view string) lifecyclePage {
 		pageBase: pageBase{
 			Title: title, Active: active, CSRF: s.csrfToken, LifecycleEnabled: true,
 		},
-		View: view,
+		Company: s.company, View: view,
 	}
 }
 
 func (s *Server) renderLifecycleError(w http.ResponseWriter, title, view string, err error, name, description string) {
 	status := http.StatusBadRequest
-	message := err.Error()
-	var validationError *application.ValidationError
 	if errors.Is(err, application.ErrNotFound) {
-		status, message = http.StatusNotFound, "Запись не найдена или недоступна в текущей компании."
-	} else if !errors.As(err, &validationError) {
-		log.Printf("lifecycle request failed: %v", err)
-		status, message = http.StatusInternalServerError, "Не удалось выполнить операцию. Проверьте данные и повторите попытку."
+		status = http.StatusNotFound
+	} else if !isLifecycleValidationError(err) {
+		status = http.StatusInternalServerError
 	}
 	page := s.lifecycleBase(title, "projects", view)
-	page.Error, page.FormName, page.FormDesc = message, name, description
+	page.Error, page.FormName, page.FormDesc = lifecyclePublicError(err), name, description
+	if view == "project-form" {
+		page.FormAction, page.FormSubmit = "/projects/create", "Создать проект"
+	}
 	s.render(w, "lifecycle.html", status, page)
 }
 
 func (s *Server) renderProjectLifecycleError(w http.ResponseWriter, r *http.Request, projectID string, err error) {
-	project, getErr := s.lifecycle.GetProject(r.Context(), s.companyID, projectID)
+	project, getErr := s.lifecycle.GetProject(r.Context(), s.company.ID, projectID)
 	if getErr != nil {
 		s.lifecycleError(w, "load project after validation error", getErr)
 		return
 	}
-	parts, getErr := s.lifecycle.ListParts(r.Context(), s.companyID, projectID)
+	parts, getErr := s.lifecycle.ListParts(r.Context(), s.company.ID, projectID)
 	if getErr != nil {
 		s.writeInternalError(w, "load project parts after validation error", getErr)
 		return
@@ -316,26 +370,43 @@ func (s *Server) renderProjectLifecycleError(w http.ResponseWriter, r *http.Requ
 	page := s.lifecycleBase(project.Name, "projects", "project")
 	page.Project, page.Parts = project, parts
 	page.Error = lifecyclePublicError(err)
-	s.render(w, "lifecycle.html", http.StatusBadRequest, page)
+	status := http.StatusBadRequest
+	if errors.Is(err, application.ErrNotFound) {
+		status = http.StatusNotFound
+	} else if !isLifecycleValidationError(err) {
+		status = http.StatusInternalServerError
+	}
+	s.render(w, "lifecycle.html", status, page)
 }
 
 func (s *Server) renderRevisionLifecycleError(w http.ResponseWriter, r *http.Request, revisionID string, err error) {
-	detail, getErr := s.lifecycle.GetRevisionEstimate(r.Context(), s.companyID, revisionID)
+	detail, getErr := s.lifecycle.GetRevisionEstimate(r.Context(), s.company.ID, revisionID)
 	if getErr != nil {
 		s.lifecycleError(w, "load revision after validation error", getErr)
 		return
 	}
-	snapshot, getErr := s.store.Snapshot(s.companyID)
+	equipment, getErr := s.lifecycle.ListEquipment(r.Context(), s.company.ID)
 	if getErr != nil {
-		s.writeInternalError(w, "load company settings after validation error", getErr)
+		s.lifecycleError(w, "load PostgreSQL equipment after validation error", getErr)
+		return
+	}
+	settings, getErr := s.lifecycle.GetCompanySettings(r.Context(), s.company.ID)
+	if getErr != nil {
+		s.lifecycleError(w, "load PostgreSQL settings after validation error", getErr)
 		return
 	}
 	page := s.lifecycleBase(detail.Part.Name+" — ревизия", "projects", "revision")
 	page.Project, page.Part, page.Revision = detail.Project, detail.Part, detail.Revision
-	page.Estimates, page.Equipment = detail.Estimates, activeEquipment(snapshot.Equipment)
-	page.Markup = formatNumber(snapshot.Settings.DefaultMarkupPercent)
+	page.Estimates, page.Equipment = detail.Estimates, activeEquipment(equipment)
+	page.Markup = formatNumber(settings.DefaultMarkupPercent)
 	page.Error = lifecyclePublicError(err)
-	s.render(w, "lifecycle.html", http.StatusBadRequest, page)
+	status := http.StatusBadRequest
+	if errors.Is(err, application.ErrNotFound) {
+		status = http.StatusNotFound
+	} else if !isLifecycleValidationError(err) {
+		status = http.StatusInternalServerError
+	}
+	s.render(w, "lifecycle.html", status, page)
 }
 
 func lifecyclePublicError(err error) string {
@@ -343,7 +414,16 @@ func lifecyclePublicError(err error) string {
 	if errors.As(err, &validationError) {
 		return validationError.Error()
 	}
+	if errors.Is(err, application.ErrNotFound) {
+		return "Запись не найдена или недоступна в текущей компании."
+	}
+	log.Printf("PostgreSQL lifecycle operation failed: %v", err)
 	return "Не удалось выполнить операцию. Проверьте данные и повторите попытку."
+}
+
+func isLifecycleValidationError(err error) bool {
+	var validationError *application.ValidationError
+	return errors.As(err, &validationError)
 }
 
 func (s *Server) lifecycleError(w http.ResponseWriter, action string, err error) {

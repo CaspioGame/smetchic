@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"smetchic/application"
+	"smetchic/model"
 	"smetchic/storage"
 )
 
@@ -36,6 +37,14 @@ func (repository *lifecycleTestRepository) CreateProject(_ context.Context, proj
 	repository.project = project
 	repository.projects = append(repository.projects, project)
 	return nil
+}
+
+func (repository *lifecycleTestRepository) UpdateProject(_ context.Context, project application.ProjectRecord) (application.ProjectRecord, error) {
+	if repository.project.ID != project.ID || repository.project.CompanyID != project.CompanyID {
+		return application.ProjectRecord{}, application.ErrNotFound
+	}
+	repository.project.Name, repository.project.Description = project.Name, project.Description
+	return repository.project, nil
 }
 
 func (repository *lifecycleTestRepository) GetProject(_ context.Context, companyID, projectID string) (application.ProjectRecord, error) {
@@ -77,6 +86,33 @@ func (repository *lifecycleTestRepository) GetEstimate(_ context.Context, compan
 	return repository.estimate, nil
 }
 
+func (repository *lifecycleTestRepository) GetCompany(_ context.Context, companyID string) (model.Company, error) {
+	return model.Company{ID: companyID, Name: "Demo company"}, nil
+}
+
+func (repository *lifecycleTestRepository) GetCompanySettings(_ context.Context, companyID string) (model.CompanySettings, error) {
+	return model.CompanySettings{CompanyID: companyID, Currency: "RUB", DefaultMarkupPercent: 50}, nil
+}
+
+func (repository *lifecycleTestRepository) GetEquipment(_ context.Context, companyID, equipmentID string) (model.Equipment, error) {
+	return testLifecycleEquipment(companyID, equipmentID), nil
+}
+
+func (repository *lifecycleTestRepository) ListEquipment(_ context.Context, companyID string) ([]model.Equipment, error) {
+	return []model.Equipment{testLifecycleEquipment(companyID, "equipment_test")}, nil
+}
+
+func testLifecycleEquipment(companyID, equipmentID string) model.Equipment {
+	return model.Equipment{
+		ID: equipmentID, CompanyID: companyID, EquipmentModelID: "model_test",
+		Name: "Test CNC", Status: model.EquipmentStatusActive, MachineRatePerHour: 1500,
+		EquipmentModel: model.EquipmentModel{
+			ID: "model_test", Type: model.EquipmentMilling, Manufacturer: "Test", Model: "CNC",
+			MaxFeed: 5000,
+		},
+	}
+}
+
 func TestLifecycleProjectGETAndPOSTRequireCSRF(t *testing.T) {
 	handler, repository := newLifecycleTestHandler(t)
 
@@ -108,6 +144,43 @@ func TestLifecycleProjectGETAndPOSTRequireCSRF(t *testing.T) {
 	}
 	if repository.project.Name != "Demo lifecycle project" || repository.project.CompanyID != storage.DemoCompanyID {
 		t.Fatalf("created project = %#v", repository.project)
+	}
+	editPage := httptest.NewRecorder()
+	handler.ServeHTTP(editPage, httptest.NewRequest(http.MethodGet, "/projects/"+repository.project.ID+"/edit", nil))
+	if editPage.Code != http.StatusOK || !strings.Contains(editPage.Body.String(), "Demo lifecycle project") {
+		t.Fatalf("GET project edit status = %d, body: %s", editPage.Code, editPage.Body.String())
+	}
+	form.Set("csrf_token", token)
+	form.Set("name", "Updated lifecycle project")
+	updateRequest := httptest.NewRequest(http.MethodPost, "/projects/"+repository.project.ID+"/save", strings.NewReader(form.Encode()))
+	updateRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	updateRequest.AddCookie(cookie)
+	updateResponse := httptest.NewRecorder()
+	handler.ServeHTTP(updateResponse, updateRequest)
+	if updateResponse.Code != http.StatusSeeOther || repository.project.Name != "Updated lifecycle project" {
+		t.Fatalf("project update status = %d, record = %#v", updateResponse.Code, repository.project)
+	}
+}
+
+func TestLifecycleHandlerDoesNotRequireJSONStore(t *testing.T) {
+	repository := &lifecycleTestRepository{}
+	company := model.Company{ID: "postgres-company", Name: "PostgreSQL company"}
+	service := application.NewService(repository, repository)
+	handler, err := NewLifecycleCabinetHandler(nil, company, service)
+	if err != nil {
+		t.Fatalf("create PostgreSQL-only handler: %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/projects", nil))
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), company.Name) {
+		t.Fatalf("GET /projects without JSON store status = %d, body: %s", response.Code, response.Body.String())
+	}
+
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/projects" {
+		t.Fatalf("GET / without JSON store status = %d, location %q", response.Code, response.Header().Get("Location"))
 	}
 }
 
@@ -163,7 +236,7 @@ func TestLifecyclePartUploadStoresOriginalAndHash(t *testing.T) {
 	form := url.Values{
 		"csrf_token":     {token},
 		"estimate_name":  {"Smoke estimate"},
-		"equipment_id":   {"dekart-s4040"},
+		"equipment_id":   {"equipment_test"},
 		"markup_percent": {"50"},
 	}
 	calculateRequest := httptest.NewRequest(http.MethodPost, "/revisions/"+repository.revision.ID+"/calculate", strings.NewReader(form.Encode()))
@@ -186,8 +259,12 @@ func newLifecycleTestHandler(t *testing.T) (http.Handler, *lifecycleTestReposito
 		t.Fatalf("create JSON store: %v", err)
 	}
 	repository := &lifecycleTestRepository{}
-	service := application.NewService(repository, application.NewJSONConfigProvider(store))
-	handler, err := NewLifecycleCabinetHandler(store, storage.DemoCompanyID, service)
+	service := application.NewService(repository, repository)
+	company, err := service.GetCompany(context.Background(), storage.DemoCompanyID)
+	if err != nil {
+		t.Fatalf("get lifecycle company: %v", err)
+	}
+	handler, err := NewLifecycleCabinetHandler(store, company, service)
 	if err != nil {
 		t.Fatalf("create lifecycle handler: %v", err)
 	}

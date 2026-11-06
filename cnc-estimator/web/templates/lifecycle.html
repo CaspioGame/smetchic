@@ -7,6 +7,7 @@
     {{template "sidebar" .}}
     <main class="content">
       <h1>{{.Title}}</h1>
+      <p class="muted">Компания: {{.Company.Name}}</p>
       {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
 
       {{if eq .View "projects"}}
@@ -25,13 +26,13 @@
 
       {{if eq .View "project-form"}}
       <section class="card">
-        <form method="post" action="/projects/create">
+        <form method="post" action="{{.FormAction}}">
           <input type="hidden" name="csrf_token" value="{{.CSRF}}">
           <label for="project-name">Название</label>
           <input id="project-name" name="name" value="{{.FormName}}" required maxlength="200">
           <label for="project-description">Описание</label>
           <input id="project-description" name="description" value="{{.FormDesc}}" maxlength="2000">
-          <button type="submit">Создать проект</button>
+          <button type="submit">{{.FormSubmit}}</button>
           <a class="button secondary" href="/projects">Отмена</a>
         </form>
       </section>
@@ -41,6 +42,7 @@
       <p><a href="/projects">← Все проекты</a></p>
       <section class="card">
         <h2>Детали проекта</h2>
+        <a class="button secondary" href="/projects/{{.Project.ID}}/edit">Редактировать проект</a>
         <p>{{.Project.Description}}</p>
         <div class="table-wrap">
           <table><thead><tr><th>Деталь</th><th>Описание</th><th>Ревизии</th></tr></thead><tbody>
@@ -113,7 +115,7 @@
           <input id="markup" name="markup_percent" type="number" min="0" step="any" value="{{.Markup}}" required>
           <button type="submit">Рассчитать и сохранить версию</button>
         </form>
-        {{else}}<div class="notice warning">Нет активного оборудования в JSON-справочнике компании.</div>{{end}}
+        {{else}}<div class="notice warning">В PostgreSQL нет активного оборудования компании.</div>{{end}}
       </section>
       <section class="card">
         <h2>Сметы этой ревизии</h2>

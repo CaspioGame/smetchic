@@ -11,7 +11,12 @@ var ErrNotFound = errors.New("record not found")
 
 type Repository interface {
 	EnsureCompany(context.Context, model.Company, model.CompanySettings) error
+	EnsureEquipmentModel(context.Context, model.EquipmentModel) error
+	EnsureEquipment(context.Context, model.Equipment) error
+	GetCompany(context.Context, string) (model.Company, error)
+	GetCompanySettings(context.Context, string) (model.CompanySettings, error)
 	CreateProject(context.Context, ProjectRecord) error
+	UpdateProject(context.Context, ProjectRecord) (ProjectRecord, error)
 	GetProject(context.Context, string, string) (ProjectRecord, error)
 	ListProjects(context.Context, string) ([]ProjectRecord, error)
 
@@ -29,6 +34,8 @@ type Repository interface {
 }
 
 type ConfigProvider interface {
+	GetCompany(context.Context, string) (model.Company, error)
 	GetCompanySettings(context.Context, string) (model.CompanySettings, error)
 	GetEquipment(context.Context, string, string) (model.Equipment, error)
+	ListEquipment(context.Context, string) ([]model.Equipment, error)
 }

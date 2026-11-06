@@ -22,28 +22,39 @@ type Server struct {
 	catalog         *equipment.Catalog
 	store           *storage.Store
 	companyID       string
+	company         model.Company
 	lifecycle       *application.Service
 	defaultSettings model.EstimateSettings
 	templates       *template.Template
 	csrfToken       string
 }
 
-func NewLifecycleCabinetHandler(store *storage.Store, companyID string, lifecycle *application.Service) (http.Handler, error) {
-	snapshot, err := store.Snapshot(companyID)
-	if err != nil {
-		return nil, fmt.Errorf("компания кабинета не найдена: %w", err)
-	}
-	defaults := model.EstimateSettings{MarkupPercent: snapshot.Settings.DefaultMarkupPercent}
-	for _, item := range snapshot.Equipment {
-		if item.Status == model.EquipmentStatusActive {
-			defaults.EquipmentID = item.ID
-			break
+func NewLifecycleCabinetHandler(store *storage.Store, company model.Company, lifecycle *application.Service) (http.Handler, error) {
+	legacyCompanyID := company.ID
+	defaults := model.EstimateSettings{}
+	if store != nil {
+		var err error
+		legacyCompanyID, err = store.FirstCompanyID()
+		if err != nil {
+			return nil, fmt.Errorf("не удалось определить компанию JSON-кабинета: %w", err)
+		}
+		snapshot, err := store.Snapshot(legacyCompanyID)
+		if err != nil {
+			return nil, fmt.Errorf("компания JSON-кабинета не найдена: %w", err)
+		}
+		defaults.MarkupPercent = snapshot.Settings.DefaultMarkupPercent
+		for _, item := range snapshot.Equipment {
+			if item.Status == model.EquipmentStatusActive {
+				defaults.EquipmentID = item.ID
+				break
+			}
 		}
 	}
-	server, err := newServer(nil, store, companyID, defaults)
+	server, err := newServer(nil, store, legacyCompanyID, defaults)
 	if err != nil {
 		return nil, err
 	}
+	server.company = company
 	server.lifecycle = lifecycle
 	return server, nil
 }

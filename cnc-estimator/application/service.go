@@ -41,6 +41,46 @@ func (service *Service) EnsureCompany(ctx context.Context, company model.Company
 	return service.repository.EnsureCompany(ctx, company, settings)
 }
 
+func (service *Service) EnsureEquipmentModel(ctx context.Context, equipmentModel model.EquipmentModel) error {
+	if err := equipmentModel.Validate(); err != nil {
+		return err
+	}
+	return service.repository.EnsureEquipmentModel(ctx, equipmentModel)
+}
+
+func (service *Service) EnsureEquipment(ctx context.Context, equipment model.Equipment) error {
+	if err := equipment.Validate(); err != nil {
+		return err
+	}
+	return service.repository.EnsureEquipment(ctx, equipment)
+}
+
+func (service *Service) InitializeDemoCompany(ctx context.Context) (model.Company, error) {
+	demo := DefaultDemoData()
+	if err := service.EnsureCompany(ctx, demo.Company, demo.Settings); err != nil {
+		return model.Company{}, err
+	}
+	if err := service.EnsureEquipmentModel(ctx, demo.EquipmentModel); err != nil {
+		return model.Company{}, err
+	}
+	if err := service.EnsureEquipment(ctx, demo.Equipment); err != nil {
+		return model.Company{}, err
+	}
+	return service.GetCompany(ctx, demo.Company.ID)
+}
+
+func (service *Service) GetCompany(ctx context.Context, companyID string) (model.Company, error) {
+	return service.config.GetCompany(ctx, companyID)
+}
+
+func (service *Service) GetCompanySettings(ctx context.Context, companyID string) (model.CompanySettings, error) {
+	return service.config.GetCompanySettings(ctx, companyID)
+}
+
+func (service *Service) ListEquipment(ctx context.Context, companyID string) ([]model.Equipment, error) {
+	return service.config.ListEquipment(ctx, companyID)
+}
+
 func (service *Service) ListProjects(ctx context.Context, companyID string) ([]ProjectRecord, error) {
 	return service.repository.ListProjects(ctx, companyID)
 }
@@ -66,6 +106,17 @@ func (service *Service) CreateProject(ctx context.Context, companyID, name, desc
 
 func (service *Service) GetProject(ctx context.Context, companyID, projectID string) (ProjectRecord, error) {
 	return service.repository.GetProject(ctx, companyID, projectID)
+}
+
+func (service *Service) UpdateProject(ctx context.Context, companyID, projectID, name, description string) (ProjectRecord, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ProjectRecord{}, Invalid("Название проекта обязательно.", nil)
+	}
+	return service.repository.UpdateProject(ctx, ProjectRecord{
+		ID: projectID, CompanyID: companyID, Name: name,
+		Description: strings.TrimSpace(description),
+	})
 }
 
 func (service *Service) ListParts(ctx context.Context, companyID, projectID string) ([]PartRecord, error) {

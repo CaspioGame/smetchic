@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"smetchic/application"
 	"smetchic/equipment"
@@ -28,43 +27,33 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		store, err := storage.NewStore("data")
+		ctx, cancel := context.WithTimeout(context.Background(), postgres.DefaultPingTimeout())
+		db, err := postgres.OpenFromEnv(ctx)
+		cancel()
 		if err != nil {
-			return fmt.Errorf("не удалось открыть JSON-хранилище: %w", err)
+			return fmt.Errorf("не удалось открыть PostgreSQL (задайте DATABASE_URL): %w", err)
 		}
-		companyID, err := store.FirstCompanyID()
+		defer func() {
+			if closeErr := db.Close(); closeErr != nil {
+				log.Printf("не удалось закрыть соединение PostgreSQL: %v", closeErr)
+			}
+		}()
+		repository := postgres.NewLifecycleRepository(db)
+		service := application.NewService(repository, repository)
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), postgres.DefaultPingTimeout())
+		company, err := service.InitializeDemoCompany(bootstrapCtx)
+		bootstrapCancel()
 		if err != nil {
-			return fmt.Errorf("не удалось выбрать компанию: %w", err)
+			return fmt.Errorf("не удалось подготовить компанию PostgreSQL: %w", err)
 		}
-		var handler http.Handler
-		if os.Getenv(postgres.DatabaseEnvVar) == "" {
-			handler, err = web.NewCabinetHandler(store, companyID)
-		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), postgres.DefaultPingTimeout())
-			db, openErr := postgres.OpenFromEnv(ctx)
-			cancel()
-			if openErr != nil {
-				return fmt.Errorf("не удалось подключиться к PostgreSQL: %w", openErr)
-			}
-			defer func() {
-				if closeErr := db.Close(); closeErr != nil {
-					log.Printf("не удалось закрыть соединение PostgreSQL: %v", closeErr)
-				}
-			}()
-			snapshot, snapshotErr := store.Snapshot(companyID)
-			if snapshotErr != nil {
-				return fmt.Errorf("не удалось загрузить демонстрационную компанию: %w", snapshotErr)
-			}
-			repository := postgres.NewLifecycleRepository(db)
-			service := application.NewService(repository, application.NewJSONConfigProvider(store))
-			bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err = service.EnsureCompany(bootstrapCtx, snapshot.Company, snapshot.Settings)
-			bootstrapCancel()
-			if err != nil {
-				return fmt.Errorf("не удалось подготовить компанию в PostgreSQL: %w", err)
-			}
-			handler, err = web.NewLifecycleCabinetHandler(store, companyID, service)
+
+		var store *storage.Store
+		store, err = storage.NewStore("data")
+		if err != nil {
+			log.Printf("legacy JSON cabinet is unavailable; PostgreSQL lifecycle remains enabled: %v", err)
+			store = nil
 		}
+		handler, err := web.NewLifecycleCabinetHandler(store, company, service)
 		if err != nil {
 			return fmt.Errorf("не удалось подготовить Web-интерфейс: %w", err)
 		}

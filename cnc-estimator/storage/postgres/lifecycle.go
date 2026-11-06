@@ -47,6 +47,144 @@ func (repository *LifecycleRepository) EnsureCompany(ctx context.Context, compan
 	return nil
 }
 
+func (repository *LifecycleRepository) EnsureEquipmentModel(ctx context.Context, equipmentModel model.EquipmentModel) error {
+	_, err := repository.db.ExecContext(ctx, `
+		INSERT INTO equipment_models (
+			id, name, manufacturer, type, work_area_x_mm, work_area_y_mm, work_area_z_mm,
+			max_rpm, spindle_power_kw, max_feed_mm_min
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (id) DO NOTHING`,
+		equipmentModel.ID, equipmentModel.Model, equipmentModel.Manufacturer, equipmentModel.Type,
+		equipmentModel.WorkAreaX, equipmentModel.WorkAreaY, equipmentModel.WorkAreaZ,
+		equipmentModel.MaxRPM, equipmentModel.SpindlePower, equipmentModel.MaxFeed)
+	if err != nil {
+		return fmt.Errorf("ensure equipment model: %w", err)
+	}
+	return nil
+}
+
+func (repository *LifecycleRepository) EnsureEquipment(ctx context.Context, equipment model.Equipment) error {
+	result, err := repository.db.ExecContext(ctx, `
+		INSERT INTO equipment (
+			id, company_id, equipment_model_id, name, hourly_rate, currency, status,
+			inventory_number, serial_number
+		)
+		SELECT $1, $2, $3, $4, $5, settings.currency, $6, NULLIF($7, ''), NULLIF($8, '')
+		FROM company_settings AS settings WHERE settings.company_id = $2
+		ON CONFLICT (id) DO NOTHING`,
+		equipment.ID, equipment.CompanyID, equipment.EquipmentModelID, equipment.Name,
+		equipment.MachineRatePerHour, equipment.Status, equipment.InventoryNumber, equipment.SerialNumber)
+	if err != nil {
+		return fmt.Errorf("ensure equipment: %w", err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check ensured equipment: %w", err)
+	}
+	if rowsAffected == 0 {
+		existing, err := repository.GetEquipment(ctx, equipment.CompanyID, equipment.ID)
+		if err != nil {
+			return fmt.Errorf("verify existing demo equipment: %w", err)
+		}
+		if existing.EquipmentModelID != equipment.EquipmentModelID {
+			return fmt.Errorf("existing demo equipment %q uses a different equipment model", equipment.ID)
+		}
+	}
+	return nil
+}
+
+func (repository *LifecycleRepository) GetCompany(ctx context.Context, companyID string) (model.Company, error) {
+	var company model.Company
+	err := repository.db.QueryRowContext(ctx, `
+		SELECT id, name, created_at, updated_at
+		FROM companies WHERE id = $1`, companyID).
+		Scan(&company.ID, &company.Name, &company.CreatedAt, &company.UpdatedAt)
+	if err != nil {
+		return model.Company{}, notFound("get company", err)
+	}
+	return company, nil
+}
+
+func (repository *LifecycleRepository) GetCompanySettings(ctx context.Context, companyID string) (model.CompanySettings, error) {
+	var settings model.CompanySettings
+	err := repository.db.QueryRowContext(ctx, `
+		SELECT company_id, currency, default_markup_percent
+		FROM company_settings WHERE company_id = $1`, companyID).
+		Scan(&settings.CompanyID, &settings.Currency, &settings.DefaultMarkupPercent)
+	if err != nil {
+		return model.CompanySettings{}, notFound("get company settings", err)
+	}
+	return settings, nil
+}
+
+func (repository *LifecycleRepository) GetEquipment(ctx context.Context, companyID, equipmentID string) (model.Equipment, error) {
+	var equipment model.Equipment
+	err := repository.db.QueryRowContext(ctx, `
+		SELECT
+			equipment.id, equipment.company_id, equipment.equipment_model_id, equipment.name,
+			COALESCE(equipment.inventory_number, ''), COALESCE(equipment.serial_number, ''),
+			equipment.status, equipment.hourly_rate, equipment.created_at, equipment.updated_at,
+			models.type, models.manufacturer, models.name, models.work_area_x_mm,
+			models.work_area_y_mm, models.work_area_z_mm, models.max_rpm,
+			models.spindle_power_kw, models.max_feed_mm_min
+		FROM equipment
+		JOIN equipment_models AS models ON models.id = equipment.equipment_model_id
+		WHERE equipment.company_id = $1 AND equipment.id = $2`,
+		companyID, equipmentID).Scan(
+		&equipment.ID, &equipment.CompanyID, &equipment.EquipmentModelID, &equipment.Name,
+		&equipment.InventoryNumber, &equipment.SerialNumber, &equipment.Status,
+		&equipment.MachineRatePerHour, &equipment.CreatedAt, &equipment.UpdatedAt,
+		&equipment.EquipmentModel.Type, &equipment.EquipmentModel.Manufacturer,
+		&equipment.EquipmentModel.Model, &equipment.EquipmentModel.WorkAreaX,
+		&equipment.EquipmentModel.WorkAreaY, &equipment.EquipmentModel.WorkAreaZ,
+		&equipment.EquipmentModel.MaxRPM, &equipment.EquipmentModel.SpindlePower,
+		&equipment.EquipmentModel.MaxFeed)
+	if err != nil {
+		return model.Equipment{}, notFound("get equipment", err)
+	}
+	equipment.EquipmentModel.ID = equipment.EquipmentModelID
+	return equipment, nil
+}
+
+func (repository *LifecycleRepository) ListEquipment(ctx context.Context, companyID string) ([]model.Equipment, error) {
+	rows, err := repository.db.QueryContext(ctx, `
+		SELECT
+			equipment.id, equipment.company_id, equipment.equipment_model_id, equipment.name,
+			COALESCE(equipment.inventory_number, ''), COALESCE(equipment.serial_number, ''),
+			equipment.status, equipment.hourly_rate, equipment.created_at, equipment.updated_at,
+			models.type, models.manufacturer, models.name, models.work_area_x_mm,
+			models.work_area_y_mm, models.work_area_z_mm, models.max_rpm,
+			models.spindle_power_kw, models.max_feed_mm_min
+		FROM equipment
+		JOIN equipment_models AS models ON models.id = equipment.equipment_model_id
+		WHERE equipment.company_id = $1 ORDER BY equipment.name, equipment.id`, companyID)
+	if err != nil {
+		return nil, fmt.Errorf("list equipment: %w", err)
+	}
+	defer rows.Close()
+	equipmentItems := make([]model.Equipment, 0)
+	for rows.Next() {
+		var equipment model.Equipment
+		if err := rows.Scan(
+			&equipment.ID, &equipment.CompanyID, &equipment.EquipmentModelID, &equipment.Name,
+			&equipment.InventoryNumber, &equipment.SerialNumber, &equipment.Status,
+			&equipment.MachineRatePerHour, &equipment.CreatedAt, &equipment.UpdatedAt,
+			&equipment.EquipmentModel.Type, &equipment.EquipmentModel.Manufacturer,
+			&equipment.EquipmentModel.Model, &equipment.EquipmentModel.WorkAreaX,
+			&equipment.EquipmentModel.WorkAreaY, &equipment.EquipmentModel.WorkAreaZ,
+			&equipment.EquipmentModel.MaxRPM, &equipment.EquipmentModel.SpindlePower,
+			&equipment.EquipmentModel.MaxFeed); err != nil {
+			return nil, fmt.Errorf("scan equipment: %w", err)
+		}
+		equipment.EquipmentModel.ID = equipment.EquipmentModelID
+		equipmentItems = append(equipmentItems, equipment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate equipment: %w", err)
+	}
+	return equipmentItems, nil
+}
+
 func (repository *LifecycleRepository) CreateProject(ctx context.Context, project application.ProjectRecord) error {
 	_, err := repository.db.ExecContext(ctx, `
 		INSERT INTO projects (id, company_id, name, description)
@@ -55,6 +193,20 @@ func (repository *LifecycleRepository) CreateProject(ctx context.Context, projec
 		return fmt.Errorf("create project: %w", err)
 	}
 	return nil
+}
+
+func (repository *LifecycleRepository) UpdateProject(ctx context.Context, project application.ProjectRecord) (application.ProjectRecord, error) {
+	err := repository.db.QueryRowContext(ctx, `
+		UPDATE projects
+		SET name = $3, description = $4, updated_at = now()
+		WHERE company_id = $1 AND id = $2
+		RETURNING id, company_id, name, description, created_at, updated_at`,
+		project.CompanyID, project.ID, project.Name, project.Description).
+		Scan(&project.ID, &project.CompanyID, &project.Name, &project.Description, &project.CreatedAt, &project.UpdatedAt)
+	if err != nil {
+		return application.ProjectRecord{}, notFound("update project", err)
+	}
+	return project, nil
 }
 
 func (repository *LifecycleRepository) GetProject(ctx context.Context, companyID, projectID string) (application.ProjectRecord, error) {
@@ -172,11 +324,11 @@ func (repository *LifecycleRepository) CreatePartWithRevision(ctx context.Contex
 		INSERT INTO part_revisions (
 			id, company_id, part_id, revision_number, source_format, source_filename,
 			source_content, source_hash, parser_version, parsed_part_json
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
 		RETURNING created_at`,
 		revision.ID, revision.CompanyID, revision.PartID, revision.RevisionNumber,
 		revision.SourceFormat, revision.SourceFilename, revision.SourceContent,
-		revision.SourceHash, revision.ParserVersion, parsed).Scan(&revision.CreatedAt)
+		revision.SourceHash, revision.ParserVersion, string(parsed)).Scan(&revision.CreatedAt)
 	if err != nil {
 		return application.PartRecord{}, application.PartRevisionRecord{}, fmt.Errorf("save part revision: %w", err)
 	}
@@ -320,11 +472,11 @@ func (repository *LifecycleRepository) CreateEstimateVersion(ctx context.Context
 			id, company_id, estimate_id, part_revision_id, version_number,
 			equipment_id, equipment_model_id, input_snapshot, settings_snapshot, result_snapshot,
 			machine_time_hours, hourly_rate, machine_cost, markup_percent, final_price, currency
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16)
 		RETURNING created_at`,
 		version.ID, version.CompanyID, version.EstimateID, version.PartRevisionID, version.VersionNumber,
-		version.EquipmentID, version.EquipmentModelID, json.RawMessage(version.InputSnapshot),
-		json.RawMessage(version.SettingsSnapshot), json.RawMessage(version.ResultSnapshot),
+		version.EquipmentID, version.EquipmentModelID, string(version.InputSnapshot),
+		string(version.SettingsSnapshot), string(version.ResultSnapshot),
 		version.MachineTimeHours, version.HourlyRate, version.MachineCost, version.MarkupPercent,
 		version.FinalPrice, version.Currency).Scan(&version.CreatedAt)
 	if err != nil {
