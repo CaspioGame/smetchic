@@ -41,6 +41,14 @@ func (repository *LifecycleRepository) EnsureCompany(ctx context.Context, compan
 	if err != nil {
 		return fmt.Errorf("ensure company settings: %w", err)
 	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO company_economics (company_id, currency, default_markup_percent)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (company_id) DO NOTHING`,
+		settings.CompanyID, settings.Currency, settings.DefaultMarkupPercent)
+	if err != nil {
+		return fmt.Errorf("ensure company production economics: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit company bootstrap: %w", err)
 	}

@@ -34,6 +34,128 @@
       </section>
       {{end}}
 
+      {{if eq .View "economics"}}
+      <section class="card">
+        <h2>Компания</h2>
+        <form method="post" action="/economics/company">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <div class="grid">
+            <div><label for="economics-currency">Валюта</label><input id="economics-currency" name="currency" value="{{.ProductionEconomics.Company.Currency}}" maxlength="3" required></div>
+            <div><label for="economics-markup">Наценка, %</label><input id="economics-markup" name="default_markup_percent" type="number" min="0" step="any" value="{{printf "%g" .ProductionEconomics.Company.DefaultMarkupPercent}}" required></div>
+            <div><label for="monthly-rent">Аренда в месяц</label><input id="monthly-rent" name="monthly_rent" type="number" min="0" step="any" value="{{printf "%g" .ProductionEconomics.Company.MonthlyRent}}" required></div>
+            <div><label for="production-hours">Производственные часы в месяц</label><input id="production-hours" name="monthly_production_hours" type="number" min="0" step="any" value="{{printf "%g" .ProductionEconomics.Company.MonthlyProductionHours}}" required></div>
+          </div>
+          <p class="muted">Аренда и накладные распределяются по производственным часам. Незаполненные значения не подменяются условными суммами.</p>
+          <button type="submit">Сохранить экономику компании</button>
+        </form>
+      </section>
+      <section class="card"><h2>Заготовки</h2><p>Стоимость заготовки рассчитывается из цены за штуку или цены материала за килограмм.</p><a class="button secondary" href="/stock-blanks">Управлять заготовками</a></section>
+      <section class="card">
+        <h2>Экономика оборудования</h2>
+        <form method="post" action="/economics/equipment">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <label for="economics-equipment">Станок</label><select id="economics-equipment" name="equipment_id" required>
+            {{range .Equipment}}<option value="{{.ID}}" {{if eq $.EquipmentEconomicsForm.EquipmentID .ID}}selected{{end}}>{{.Name}}</option>{{else}}<option value="">Станки не добавлены</option>{{end}}
+          </select>
+          <div class="grid">
+            <div><label>Цена приобретения</label><input name="purchase_price" type="number" min="0" step="any" value="{{printf "%g" .EquipmentEconomicsForm.PurchasePrice}}" required></div>
+            <div><label>Остаточная стоимость</label><input name="residual_value" type="number" min="0" step="any" value="{{printf "%g" .EquipmentEconomicsForm.ResidualValue}}" required></div>
+            <div><label>Срок службы, лет</label><input name="useful_life_years" type="number" min="0.001" step="any" value="{{printf "%g" .EquipmentEconomicsForm.UsefulLifeYears}}" required></div>
+            <div><label>Доступные часы в год</label><input name="annual_available_hours" type="number" min="0.001" step="any" value="{{printf "%g" .EquipmentEconomicsForm.AnnualAvailableHours}}" required></div>
+            <div><label>Мощность, кВт</label><input name="consumption_kw" type="number" min="0" step="any" value="{{printf "%g" .EquipmentEconomicsForm.ConsumptionKW}}" required></div>
+            <div><label>Электроэнергия за кВт·ч</label><input name="electricity_price_per_kwh" type="number" min="0" step="any" value="{{printf "%g" .EquipmentEconomicsForm.ElectricityPricePerKWh}}" required></div>
+            <div><label>Обслуживание в год</label><input name="annual_maintenance_cost" type="number" min="0" step="any" value="{{printf "%g" .EquipmentEconomicsForm.AnnualMaintenanceCost}}" required></div>
+            <div><label>Ремонт в год</label><input name="annual_repair_cost" type="number" min="0" step="any" value="{{printf "%g" .EquipmentEconomicsForm.AnnualRepairCost}}" required></div>
+            <div><label>Прочие расходы станка в год</label><input name="annual_other_cost" type="number" min="0" step="any" value="{{printf "%g" .EquipmentEconomicsForm.AnnualOtherCost}}" required></div>
+          </div>
+          <button type="submit">Сохранить параметры станка</button>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Станок</th><th>Цена</th><th>Срок службы</th><th>Доступно ч/год</th><th></th></tr></thead><tbody>
+          {{range .ProductionEconomics.Equipment}}<tr>
+            <td>{{.EquipmentID}}</td><td>{{printf "%.2f" .PurchasePrice}}</td><td>{{printf "%.2f" .UsefulLifeYears}} лет</td><td>{{printf "%.2f" .AnnualAvailableHours}}</td>
+            <td class="actions"><a class="button secondary" href="/economics?equipment_id={{.EquipmentID}}">Изменить</a><form method="post" action="/economics/equipment/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="equipment_id" value="{{.EquipmentID}}"><button class="danger" type="submit">Удалить</button></form></td>
+          </tr>{{else}}<tr><td colspan="5" class="muted">Детальная экономика оборудования не настроена; используется указанная ставка за час.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>Ставки персонала</h2>
+        <form method="post" action="/economics/personnel">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <div class="grid">
+            <div><label>Роль</label><select name="role"><option value="operator">Оператор</option><option value="programmer">Программист</option><option value="setup">Наладчик</option></select></div>
+            <div><label>Стоимость в месяц</label><input name="monthly_cost" type="number" min="0" step="any" required></div>
+            <div><label>Доступные часы в месяц</label><input name="monthly_available_hours" type="number" min="0.001" step="any" required></div>
+          </div><button type="submit">Сохранить ставку</button>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Роль</th><th>Стоимость/мес.</th><th>Часы/мес.</th><th></th></tr></thead><tbody>
+          {{range .ProductionEconomics.Personnel}}<tr><td>{{.Role}}</td><td>{{printf "%.2f" .MonthlyCost}} {{.Currency}}</td><td>{{printf "%.2f" .MonthlyAvailableHours}}</td>
+            <td><form method="post" action="/economics/personnel/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><button class="danger" type="submit">Удалить</button></form></td>
+          </tr>{{else}}<tr><td colspan="4" class="muted">Ставки не заданы.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      <section class="card">
+        <h2>Накладные расходы</h2>
+        <form method="post" action="/economics/overheads">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <div class="grid"><div><label>Наименование</label><input name="name" required></div>
+            <div><label>Категория</label><select name="category"><option value="utilities">Коммунальные</option><option value="other">Прочие</option></select></div>
+            <div><label>Сумма</label><input name="amount" type="number" min="0" step="any" required></div>
+            <div><label>Период</label><select name="period"><option value="monthly">В месяц</option><option value="annual">В год</option></select></div>
+          </div><input type="hidden" name="active" value="true"><button type="submit">Добавить накладные расходы</button>
+        </form>
+        <div class="table-wrap"><table><thead><tr><th>Расход</th><th>Категория</th><th>Сумма</th><th>Период</th><th>Статус</th><th></th></tr></thead><tbody>
+          {{range .ProductionEconomics.Overheads}}<tr>
+            <td colspan="5"><form class="grid" method="post" action="/economics/overheads">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}">
+              <input name="name" value="{{.Name}}" required>
+              <select name="category"><option value="utilities" {{if eq .Category "utilities"}}selected{{end}}>Коммунальные</option><option value="other" {{if eq .Category "other"}}selected{{end}}>Прочие</option></select>
+              <input name="amount" type="number" min="0" step="any" value="{{printf "%g" .Amount}}" required>
+              <select name="period"><option value="monthly" {{if eq .Period "monthly"}}selected{{end}}>В месяц</option><option value="annual" {{if eq .Period "annual"}}selected{{end}}>В год</option></select>
+              <select name="active"><option value="true" {{if .Active}}selected{{end}}>Активны</option><option value="false" {{if not .Active}}selected{{end}}>Выключены</option></select>
+              <button type="submit">Сохранить</button>
+            </form></td><td><form method="post" action="/economics/overheads/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><button class="danger" type="submit">Удалить</button></form></td>
+          </tr>{{else}}<tr><td colspan="6" class="muted">Накладные расходы не добавлены.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "stock-blanks"}}
+      <section class="card">
+        <p>Заготовки и их стоимость хранятся в PostgreSQL и принадлежат вашей компании.</p>
+        <a class="button" href="/stock-blanks/new">Добавить заготовку</a>
+        <div class="table-wrap"><table><thead><tr><th>Название</th><th>Форма</th><th>Материал</th><th>Размеры, мм</th><th>Цена/шт.</th><th></th></tr></thead><tbody>
+          {{range .StockBlanks}}<tr>
+            <td>{{.Name}}</td><td>{{.Shape}}</td><td>{{.MaterialID}}</td>
+            <td>{{if eq .Shape "rectangular"}}{{printf "%.2f × %.2f × %.2f" .Width .Length .Height}}{{else}}Ø{{printf "%.2f × %.2f" .Diameter .Length}}{{end}}</td>
+            <td>{{printf "%.2f" .PricePerPiece}} {{.Currency}}</td>
+            <td class="actions"><a class="button secondary" href="/stock-blanks/edit?id={{.ID}}">Изменить</a><form class="inline-form" method="post" action="/stock-blanks/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><button class="danger" type="submit">Удалить</button></form></td>
+          </tr>{{else}}<tr><td colspan="6" class="muted">Заготовки пока не добавлены.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "stock-blank-form"}}
+      <section class="card">
+        <form method="post" action="/stock-blanks/save">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="id" value="{{.StockBlankForm.ID}}">
+          <label for="blank-name">Название</label><input id="blank-name" name="name" value="{{.StockBlankForm.Name}}" required>
+          <label for="blank-material">Материал</label><select id="blank-material" name="material_id" required><option value="">Выберите материал</option>
+            {{range .Materials}}<option value="{{.ID}}" {{if eq $.StockBlankForm.MaterialID .ID}}selected{{end}}>{{.Name}} {{.Grade}} — {{.PricePerKg}} {{.Currency}}/кг</option>{{end}}
+          </select>
+          <div class="grid">
+            <div><label for="blank-shape">Форма</label><select id="blank-shape" name="shape"><option value="rectangular" {{if eq .StockBlankForm.Shape "rectangular"}}selected{{end}}>Прямоугольная</option><option value="round" {{if eq .StockBlankForm.Shape "round"}}selected{{end}}>Круглая</option></select></div>
+            <div><label for="blank-width">Ширина, мм (прямоугольная)</label><input id="blank-width" name="width" type="number" min="0" step="any" value="{{.StockBlankForm.Width}}"></div>
+            <div><label for="blank-length">Длина, мм</label><input id="blank-length" name="length" type="number" min="0.01" step="any" value="{{.StockBlankForm.Length}}" required></div>
+            <div><label for="blank-height">Высота, мм (прямоугольная)</label><input id="blank-height" name="height" type="number" min="0" step="any" value="{{.StockBlankForm.Height}}"></div>
+            <div><label for="blank-diameter">Диаметр, мм (круглая)</label><input id="blank-diameter" name="diameter" type="number" min="0" step="any" value="{{.StockBlankForm.Diameter}}"></div>
+            <div><label for="blank-price">Цена за штуку (0 — считать по материалу)</label><input id="blank-price" name="price_per_piece" type="number" min="0" step="any" value="{{if .StockBlankForm.PricePerPiece}}{{.StockBlankForm.PricePerPiece}}{{else}}0{{end}}" required></div>
+            <div><label for="blank-currency">Валюта</label><input id="blank-currency" name="currency" value="{{.StockBlankForm.Currency}}" maxlength="3" required></div>
+          </div>
+          <button type="submit">Сохранить заготовку</button><a class="button secondary" href="/stock-blanks">Отмена</a>
+        </form>
+      </section>
+      {{end}}
+
       {{if eq .View "equipment"}}
       <section class="card">
         <p>Станки и их ставки принадлежат только вашей компании.</p>
@@ -164,7 +286,7 @@
       <section class="card"><p>Учёт принадлежит вашей компании. Сейчас поддерживается базовая карточка фрезы.</p><a class="button" href="/consumables/new">Добавить фрезу</a>
         <div class="table-wrap"><table><thead><tr><th>Фреза</th><th>Диаметр</th><th>Зубья</th><th>Материал/покрытие</th><th>Остаток</th><th>Цена</th><th></th></tr></thead><tbody>
           {{range .Consumables}}<tr>
-            <td>{{.Name}}<br><span class="muted">{{.Manufacturer}} {{.ToolType}}</span></td><td>{{printf "%.2f" .DiameterMm}} мм</td><td>{{.FluteCount}}</td><td>{{.ToolMaterial}} / {{.Coating}}</td><td>{{.StockQuantity}}</td><td>{{printf "%.2f" .UnitPrice}} {{.Currency}}</td>
+            <td>{{.Name}}<br><span class="muted">{{.Manufacturer}} {{.ToolType}}</span></td><td>{{printf "%.2f" .DiameterMm}} мм</td><td>{{.FluteCount}}</td><td>{{.ToolMaterial}} / {{.Coating}}</td><td>{{.StockQuantity}}</td><td>{{printf "%.2f" .UnitPrice}} {{.Currency}}<br><span class="muted">ресурс {{printf "%.2f" .ResourceMinutes}} мин.</span></td>
             <td class="actions"><a class="button secondary" href="/consumables/edit?id={{.ID}}">Изменить</a><form class="inline-form" method="post" action="/consumables/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><button class="danger" type="submit">Удалить</button></form></td>
           </tr>{{else}}<tr><td colspan="7" class="muted">Расходники пока не добавлены.</td></tr>{{end}}
         </tbody></table></div>
@@ -185,6 +307,9 @@
           <div><label for="length">Длина, мм</label><input id="length" name="length_mm" type="number" min="0.01" step="any" value="{{.ConsumableForm.LengthMm}}" required></div>
           <div><label for="quantity">Остаток, шт.</label><input id="quantity" name="stock_quantity" type="number" min="0" step="1" value="{{.ConsumableForm.StockQuantity}}" required></div>
           <div><label for="unit-price">Цена за штуку</label><input id="unit-price" name="unit_price" type="number" min="0" step="any" value="{{.ConsumableForm.UnitPrice}}" required></div>
+          <div><label for="resource-minutes">Ресурс, мин. резания</label><input id="resource-minutes" name="resource_minutes" type="number" min="0" step="any" value="{{.ConsumableForm.ResourceMinutes}}" required></div>
+          <div><label for="resource-units">Ресурс в единицах</label><input id="resource-units" name="resource_units" type="number" min="0" step="any" value="{{.ConsumableForm.ResourceUnits}}" required></div>
+          <div><label for="resource-unit-name">Название единицы</label><input id="resource-unit-name" name="resource_unit_name" value="{{.ConsumableForm.ResourceUnitName}}" placeholder="мин. резания"></div>
           <div><label for="consumable-currency">Валюта</label><input id="consumable-currency" name="currency" value="{{.ConsumableForm.Currency}}" maxlength="3" required></div>
         </div>
         <p><button type="submit">Сохранить</button><a class="button secondary" href="/consumables">Отмена</a></p>

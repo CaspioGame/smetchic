@@ -48,6 +48,7 @@ demo company, settings, and DeKart S4040 into PostgreSQL only when their IDs
 are absent; existing PostgreSQL records are not overwritten. The authenticated
 workspace reads and writes company profile/settings, company equipment and
 materials, consumables, orders, and project lifecycle data through PostgreSQL.
+It also stores stock blanks and production-economics inputs in PostgreSQL.
 Global equipment/material catalogs are read-only. No JSON records are imported
 automatically.
 `go test ./...` runs isolated PostgreSQL lifecycle integration tests when
@@ -93,6 +94,31 @@ input, settings, and result snapshots and is immutable in the database.
 Equipment and current company settings for the calculation are read from
 PostgreSQL; the calculation itself remains in the existing Go estimator.
 
+## Production economics
+
+The authenticated workspace has a separate **Экономика** section for company
+rent and markup, equipment ownership/operating costs, monthly personnel rates,
+and categorized overhead. Stock blanks are managed under **Заготовки**;
+consumables can carry a tooling lifetime in cutting minutes.
+
+An estimate version snapshots the economics and material/tool inputs used at
+calculation time, along with a detailed cost breakdown. Updating current
+company settings later does not alter an existing version. Costing runs in a
+deterministic Go service after the existing operation/time estimate:
+
+- detailed equipment costs are used only when explicitly configured; otherwise
+  the legacy machine hourly rate is used and marked as such;
+- personnel, tooling, rent, utilities, and other overhead are excluded when
+  the corresponding inputs are not configured, with warnings in the result;
+- setup and programming are batch costs; machining, material, and other
+  repeatable costs scale with the entered quantity;
+- company material prices and stock-blank prices are distinguished from global
+  catalog reference prices, which are clearly labelled as estimates.
+
+The calculation does not infer a supplier quote or silently add default
+production expenses. Detailed equipment costs replace, rather than duplicate,
+the legacy hourly machine rate.
+
 ## Inspect the schema
 
 List the created tables:
@@ -116,4 +142,5 @@ workspace catalogs, consumables, and orders are in
 [`migrations/004_workspace.sql`](migrations/004_workspace.sql). Migration
 [`migrations/005_allow_multiple_orders_per_project.sql`](migrations/005_allow_multiple_orders_per_project.sql)
 removes the old one-order-per-project restriction without changing existing
-order data.
+order data. Production economics and consumable resource fields are introduced
+by [`migrations/006_production_economics.sql`](migrations/006_production_economics.sql).

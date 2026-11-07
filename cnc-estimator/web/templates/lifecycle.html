@@ -113,6 +113,34 @@
           </select>
           <label for="markup">Наценка, %</label>
           <input id="markup" name="markup_percent" type="number" min="0" step="any" value="{{.Markup}}" required>
+          <div class="grid">
+            <div><label for="quantity">Размер партии, шт.</label><input id="quantity" name="quantity" type="number" min="1" step="1" value="1" required></div>
+            <div><label for="setup-time">Наладка, мин. на партию</label><input id="setup-time" name="setup_time_minutes" type="number" min="0" step="any" value="0"></div>
+            <div><label for="programming-hours">Программирование, ч. на партию</label><input id="programming-hours" name="programming_hours" type="number" min="0" step="any" value="0"></div>
+          </div>
+          <label for="stock-blank">Заготовка (цена за штуку имеет приоритет)</label>
+          <select id="stock-blank" name="stock_blank_id">
+            <option value="">Не выбрана</option>
+            {{range .StockBlanks}}<option value="{{.ID}}">{{.Name}} — {{printf "%.2f" .PricePerPiece}} {{.Currency}}</option>{{end}}
+          </select>
+          <label for="material">Материал для оценки по объёму заготовки</label>
+          <select id="material" name="material_id">
+            <option value="">Не выбран</option>
+            {{range .Materials}}<option value="{{.ID}}">{{.Name}} {{.Grade}} — {{printf "%.2f" .PricePerKg}} {{.Currency}}/кг</option>{{end}}
+          </select>
+          <label for="global-material">Справочный материал (не предложение поставщика)</label>
+          <select id="global-material" name="global_material_id">
+            <option value="">Не выбран</option>
+            {{range .GlobalMaterials}}<option value="{{.ID}}">{{.Name}} {{.Grade}} — {{printf "%.2f" .ReferencePriceKg}} {{.Currency}}/кг</option>{{end}}
+          </select>
+          <label for="consumable">Инструмент</label>
+          <select id="consumable" name="consumable_id">
+            <option value="">Не выбран</option>
+            {{range .Consumables}}<option value="{{.ID}}">{{.Name}} — {{printf "%.2f" .UnitPrice}} {{.Currency}}, ресурс {{printf "%.2f" .ResourceMinutes}} мин.</option>{{end}}
+          </select>
+          <label for="tool-usage">Расход выбранного инструмента, мин. на деталь</label>
+          <input id="tool-usage" name="tool_usage_minutes" type="number" min="0" step="any" value="0">
+          <p class="muted">Незаполненные затраты не добавляются автоматически; результат содержит предупреждения о пропущенных настройках.</p>
           <button type="submit">Рассчитать и сохранить версию</button>
         </form>
         {{else}}<div class="notice warning">В PostgreSQL нет активного оборудования компании.</div>{{end}}
@@ -142,12 +170,50 @@
         <h2>Версия расчёта #{{.Version.VersionNumber}}</h2>
         <p>Станок: {{.Result.Equipment.Name}}</p>
         <p>Модель: {{.Result.Equipment.EquipmentModel.Manufacturer}} {{.Result.Equipment.EquipmentModel.Model}}</p>
+        {{if .Result.CostBreakdown}}
+        {{if .Result.CostBreakdown.EquipmentEconomicsApplied}}
+        <p>Для стоимости станка применена детальная модель; ставка {{printf "%.2f %s/ч" .Version.HourlyRate .Version.Currency}} сохранена справочно и не суммируется.</p>
+        {{else}}
+        <p>Применённая legacy-ставка станка: <strong>{{printf "%.2f %s/ч" .Version.HourlyRate .Version.Currency}}</strong></p>
+        {{end}}
+        {{else}}
         <p>Ставка на момент расчёта: <strong>{{printf "%.2f %s/ч" .Version.HourlyRate .Version.Currency}}</strong></p>
+        {{end}}
         <p>Время обработки: <strong>{{printf "%.2f мин" .Result.TotalMachineTime}}</strong></p>
         <p>Стоимость станка: <strong>{{printf "%.2f %s" .Version.MachineCost .Version.Currency}}</strong></p>
         <p>Наценка: {{printf "%.2f%%" .Version.MarkupPercent}}; итог: <strong>{{printf "%.2f %s" .Version.FinalPrice .Version.Currency}}</strong></p>
         <p>Ревизия детали: <a href="/revisions/{{.Version.PartRevisionID}}">{{.Version.PartRevisionID}}</a></p>
       </section>
+      {{if .Result.CostBreakdown}}
+      <section class="card">
+        <h2>Производственная себестоимость</h2>
+        <p>Партия: {{.Result.CostBreakdown.Quantity}} шт.; себестоимость партии: <strong>{{printf "%.2f %s" .Result.CostBreakdown.TotalCost .Result.CostBreakdown.Currency}}</strong></p>
+        <p>Себестоимость изделия: {{printf "%.2f %s" .Result.CostBreakdown.PerPieceCost .Result.CostBreakdown.Currency}}; цена изделия: {{printf "%.2f %s" .Result.CostBreakdown.SellingPricePerPiece .Result.CostBreakdown.Currency}}</p>
+        <p>Итого по станку: <strong>{{printf "%.2f %s" .Result.CostBreakdown.MachineCost .Result.CostBreakdown.Currency}}</strong></p>
+        <div class="table-wrap"><table><thead><tr><th>Статья</th><th>Стоимость партии</th></tr></thead><tbody>
+          <tr><td>Материал ({{.Result.CostBreakdown.MaterialPriceSource}})</td><td>{{printf "%.2f" .Result.CostBreakdown.MaterialCost}}</td></tr>
+          {{if .Result.CostBreakdown.EquipmentEconomicsApplied}}
+          <tr><td>Амортизация станка</td><td>{{printf "%.2f" .Result.CostBreakdown.DepreciationCost}}</td></tr>
+          <tr><td>Электроэнергия станка</td><td>{{printf "%.2f" .Result.CostBreakdown.ElectricityCost}}</td></tr>
+          <tr><td>Обслуживание станка</td><td>{{printf "%.2f" .Result.CostBreakdown.MaintenanceCost}}</td></tr>
+          <tr><td>Ремонт станка</td><td>{{printf "%.2f" .Result.CostBreakdown.RepairCost}}</td></tr>
+          <tr><td>Прочие расходы станка</td><td>{{printf "%.2f" .Result.CostBreakdown.OtherEquipmentCost}}</td></tr>
+          {{else}}
+          <tr><td>Станок по legacy-ставке</td><td>{{printf "%.2f" .Result.CostBreakdown.MachineCost}}</td></tr>
+          {{end}}
+          <tr><td>Оператор</td><td>{{printf "%.2f" .Result.CostBreakdown.OperatorCost}}</td></tr>
+          <tr><td>Программирование</td><td>{{printf "%.2f" .Result.CostBreakdown.ProgrammingCost}}</td></tr>
+          <tr><td>Инструмент</td><td>{{printf "%.2f" .Result.CostBreakdown.ToolingCost}}</td></tr>
+          <tr><td>Наладка</td><td>{{printf "%.2f" .Result.CostBreakdown.SetupCost}}</td></tr>
+          <tr><td>Аренда</td><td>{{printf "%.2f" .Result.CostBreakdown.RentCost}}</td></tr>
+          <tr><td>Коммунальные расходы</td><td>{{printf "%.2f" .Result.CostBreakdown.UtilitiesCost}}</td></tr>
+          <tr><td>Прочие накладные расходы</td><td>{{printf "%.2f" .Result.CostBreakdown.OtherOverheadCost}}</td></tr>
+          <tr><td>Прибыль</td><td>{{printf "%.2f" .Result.CostBreakdown.Profit}}</td></tr>
+          <tr><th>Цена продажи</th><th>{{printf "%.2f" .Result.CostBreakdown.SellingPrice}} {{.Result.CostBreakdown.Currency}}</th></tr>
+        </tbody></table></div>
+        {{if .Result.CostBreakdown.Warnings}}<h3>Не включено / требует настройки</h3><ul>{{range .Result.CostBreakdown.Warnings}}<li>{{.}}</li>{{end}}</ul>{{end}}
+      </section>
+      {{end}}
       <section class="card">
         <h2>Сохранённые операции</h2>
         <div class="table-wrap"><table><thead><tr><th>Операция</th><th>Стратегия</th><th>Время, мин</th><th>Траектория, мм</th></tr></thead><tbody>

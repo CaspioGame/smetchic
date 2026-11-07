@@ -45,6 +45,17 @@ func (repository *LifecycleRepository) UpdateCompany(ctx context.Context, compan
 	if affected == 0 {
 		return application.ErrNotFound
 	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO company_economics (company_id, currency, default_markup_percent)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (company_id) DO UPDATE SET
+			currency = EXCLUDED.currency,
+			default_markup_percent = EXCLUDED.default_markup_percent,
+			updated_at = now()`,
+		settings.CompanyID, settings.Currency, settings.DefaultMarkupPercent)
+	if err != nil {
+		return fmt.Errorf("sync company production economics: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit company profile update: %w", err)
 	}
@@ -222,7 +233,8 @@ func (repository *LifecycleRepository) ListConsumables(ctx context.Context, comp
 	rows, err := repository.db.QueryContext(ctx, `
 		SELECT id, company_id, category, name, manufacturer, tool_type,
 		       COALESCE(diameter_mm, 0), COALESCE(flute_count, 0), tool_material, coating,
-		       COALESCE(length_mm, 0), stock_quantity, unit_price, currency, attributes,
+		       COALESCE(length_mm, 0), stock_quantity, unit_price, resource_minutes,
+		       resource_units, resource_unit_name, currency, attributes,
 		       created_at, updated_at
 		FROM consumables WHERE company_id = $1 ORDER BY name, id`, companyID)
 	if err != nil {
@@ -237,7 +249,8 @@ func (repository *LifecycleRepository) ListConsumables(ctx context.Context, comp
 			&item.ID, &item.CompanyID, &item.Category, &item.Name,
 			&item.Manufacturer, &item.ToolType, &item.DiameterMm, &item.FluteCount,
 			&item.ToolMaterial, &item.Coating, &item.LengthMm, &item.StockQuantity,
-			&item.UnitPrice, &item.Currency, &attributes, &item.CreatedAt, &item.UpdatedAt,
+			&item.UnitPrice, &item.ResourceMinutes, &item.ResourceUnits, &item.ResourceUnitName,
+			&item.Currency, &attributes, &item.CreatedAt, &item.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan company consumable: %w", err)
 		}
@@ -255,10 +268,10 @@ func (repository *LifecycleRepository) SaveConsumable(ctx context.Context, item 
 		INSERT INTO consumables (
 			id, company_id, category, name, manufacturer, tool_type, diameter_mm,
 			flute_count, tool_material, coating, length_mm, stock_quantity,
-			unit_price, currency, attributes
+			unit_price, resource_minutes, resource_units, resource_unit_name, currency, attributes
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, NULLIF($7, 0), NULLIF($8, 0), $9, $10,
-			NULLIF($11, 0), $12, $13, $14, $15::jsonb
+			NULLIF($11, 0), $12, $13, $14, $15, $16, $17, $18::jsonb
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			category = EXCLUDED.category, name = EXCLUDED.name,
@@ -267,11 +280,14 @@ func (repository *LifecycleRepository) SaveConsumable(ctx context.Context, item 
 			tool_material = EXCLUDED.tool_material, coating = EXCLUDED.coating,
 			length_mm = EXCLUDED.length_mm, stock_quantity = EXCLUDED.stock_quantity,
 			unit_price = EXCLUDED.unit_price, currency = EXCLUDED.currency,
+			resource_minutes = EXCLUDED.resource_minutes, resource_units = EXCLUDED.resource_units,
+			resource_unit_name = EXCLUDED.resource_unit_name,
 			attributes = EXCLUDED.attributes, updated_at = now()
 		WHERE consumables.company_id = EXCLUDED.company_id`,
 		item.ID, item.CompanyID, item.Category, item.Name, item.Manufacturer, item.ToolType,
 		item.DiameterMm, item.FluteCount, item.ToolMaterial, item.Coating, item.LengthMm,
-		item.StockQuantity, item.UnitPrice, item.Currency, string(item.Attributes))
+		item.StockQuantity, item.UnitPrice, item.ResourceMinutes, item.ResourceUnits,
+		item.ResourceUnitName, item.Currency, string(item.Attributes))
 	if err != nil {
 		return fmt.Errorf("save company consumable: %w", err)
 	}

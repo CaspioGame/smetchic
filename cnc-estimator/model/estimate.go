@@ -9,4 +9,5 @@ type Estimate struct {
 	TotalCost        float64
 	SuggestedPrice   float64
 	Equipment        Equipment
+	CostBreakdown    *ProductionCostBreakdown `json:"cost_breakdown,omitempty"`
 }

@@ -14,18 +14,21 @@ import (
 )
 
 type consumableForm struct {
-	ID            string
-	Name          string
-	Manufacturer  string
-	ToolType      string
-	DiameterMm    string
-	FluteCount    string
-	ToolMaterial  string
-	Coating       string
-	LengthMm      string
-	StockQuantity string
-	UnitPrice     string
-	Currency      string
+	ID               string
+	Name             string
+	Manufacturer     string
+	ToolType         string
+	DiameterMm       string
+	FluteCount       string
+	ToolMaterial     string
+	Coating          string
+	LengthMm         string
+	StockQuantity    string
+	UnitPrice        string
+	ResourceMinutes  string
+	ResourceUnits    string
+	ResourceUnitName string
+	Currency         string
 }
 
 type orderForm struct {
@@ -36,6 +39,19 @@ type orderForm struct {
 	Status      string
 }
 
+type postgresStockBlankForm struct {
+	ID            string
+	Name          string
+	MaterialID    string
+	Shape         string
+	Length        string
+	Width         string
+	Height        string
+	Diameter      string
+	PricePerPiece string
+	Currency      string
+}
+
 type orderListRow struct {
 	Order      application.OrderRecord
 	StatusName string
@@ -43,25 +59,29 @@ type orderListRow struct {
 
 type workspacePage struct {
 	pageBase
-	View                string
-	Company             model.Company
-	Settings            model.CompanySettings
-	Users               []application.CompanyUserRecord
-	EquipmentRows       []equipmentListRow
-	Equipment           []model.Equipment
-	EquipmentModel      []model.EquipmentModel
-	Materials           []model.Material
-	GlobalMaterials     []model.GlobalMaterial
-	GlobalMaterial      model.GlobalMaterial
-	GlobalMaterialQuery string
-	Consumables         []model.Consumable
-	Orders              []application.OrderRecord
-	OrderRows           []orderListRow
-	Projects            []application.ProjectRecord
-	EquipmentForm       equipmentForm
-	MaterialForm        materialForm
-	ConsumableForm      consumableForm
-	OrderForm           orderForm
+	View                   string
+	Company                model.Company
+	Settings               model.CompanySettings
+	Users                  []application.CompanyUserRecord
+	EquipmentRows          []equipmentListRow
+	Equipment              []model.Equipment
+	EquipmentModel         []model.EquipmentModel
+	Materials              []model.Material
+	StockBlanks            []model.StockBlank
+	GlobalMaterials        []model.GlobalMaterial
+	GlobalMaterial         model.GlobalMaterial
+	GlobalMaterialQuery    string
+	Consumables            []model.Consumable
+	Orders                 []application.OrderRecord
+	OrderRows              []orderListRow
+	Projects               []application.ProjectRecord
+	EquipmentForm          equipmentForm
+	MaterialForm           materialForm
+	ConsumableForm         consumableForm
+	OrderForm              orderForm
+	StockBlankForm         postgresStockBlankForm
+	ProductionEconomics    application.CompanyProductionEconomics
+	EquipmentEconomicsForm model.EquipmentEconomics
 }
 
 func (s *Server) serveWorkspace(w http.ResponseWriter, r *http.Request) bool {
@@ -76,6 +96,71 @@ func (s *Server) serveWorkspace(w http.ResponseWriter, r *http.Request) bool {
 			return s.workspaceMethodNotAllowed(w, r)
 		}
 		s.saveCompanyWorkspace(w, r)
+	case r.URL.Path == "/economics":
+		if r.Method != http.MethodGet {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.renderEconomicsWorkspace(w, r)
+	case r.URL.Path == "/economics/company":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.saveCompanyEconomics(w, r)
+	case r.URL.Path == "/economics/equipment":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.saveEquipmentEconomics(w, r)
+	case r.URL.Path == "/economics/equipment/delete":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.deleteEquipmentEconomics(w, r)
+	case r.URL.Path == "/economics/personnel":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.savePersonnelRate(w, r)
+	case r.URL.Path == "/economics/personnel/delete":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.deletePersonnelRate(w, r)
+	case r.URL.Path == "/economics/overheads":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.saveCompanyOverhead(w, r)
+	case r.URL.Path == "/economics/overheads/delete":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.deleteCompanyOverhead(w, r)
+	case r.URL.Path == "/stock-blanks":
+		if r.Method != http.MethodGet {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.renderPostgresStockBlanks(w, r)
+	case r.URL.Path == "/stock-blanks/new":
+		if r.Method != http.MethodGet {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.renderPostgresStockBlankForm(w, r, true)
+	case r.URL.Path == "/stock-blanks/edit":
+		if r.Method != http.MethodGet {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.renderPostgresStockBlankForm(w, r, false)
+	case r.URL.Path == "/stock-blanks/save":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.savePostgresStockBlank(w, r)
+	case r.URL.Path == "/stock-blanks/delete":
+		if r.Method != http.MethodPost {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.deletePostgresStockBlank(w, r)
 	case r.URL.Path == "/equipment":
 		if r.Method != http.MethodGet {
 			return s.workspaceMethodNotAllowed(w, r)
@@ -254,6 +339,367 @@ func (s *Server) saveCompanyWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/company?saved=1", http.StatusSeeOther)
+}
+
+func (s *Server) renderEconomicsWorkspace(w http.ResponseWriter, r *http.Request) {
+	page, err := s.loadEconomicsWorkspace(r)
+	if err != nil {
+		s.workspaceInternalError(w, "load production economics", err)
+		return
+	}
+	if equipmentID := strings.TrimSpace(r.URL.Query().Get("equipment_id")); equipmentID != "" {
+		item, getErr := s.lifecycle.GetEquipmentEconomics(r.Context(), companyIDForRequest(s, r), equipmentID)
+		if getErr != nil {
+			s.renderEconomicsError(w, r, "load equipment economics for edit", getErr)
+			return
+		}
+		if item != nil {
+			page.EquipmentEconomicsForm = *item
+		} else {
+			page.EquipmentEconomicsForm.CompanyID = companyIDForRequest(s, r)
+			page.EquipmentEconomicsForm.EquipmentID = equipmentID
+		}
+	}
+	s.render(w, r, "workspace.html", http.StatusOK, page)
+}
+
+func (s *Server) loadEconomicsWorkspace(r *http.Request) (workspacePage, error) {
+	companyID := companyIDForRequest(s, r)
+	economics, err := s.lifecycle.ListProductionEconomics(r.Context(), companyID)
+	if err != nil {
+		return workspacePage{}, err
+	}
+	equipment, err := s.lifecycle.ListEquipment(r.Context(), companyID)
+	if err != nil {
+		return workspacePage{}, err
+	}
+	materials, err := s.lifecycle.ListMaterials(r.Context(), companyID)
+	if err != nil {
+		return workspacePage{}, err
+	}
+	stockBlanks, err := s.lifecycle.ListStockBlanks(r.Context(), companyID)
+	if err != nil {
+		return workspacePage{}, err
+	}
+	page := s.workspaceBase(r, "Производственная экономика", "economics", "economics")
+	page.ProductionEconomics, page.Equipment = economics, equipment
+	page.Materials, page.StockBlanks = materials, stockBlanks
+	return page, nil
+}
+
+func (s *Server) saveCompanyEconomics(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	rent, err := parseRequiredNumber("аренда в месяц", r.FormValue("monthly_rent"))
+	if err != nil {
+		http.Error(w, applicationPublicError(err), http.StatusBadRequest)
+		return
+	}
+	hours, err := parseRequiredNumber("производственные часы в месяц", r.FormValue("monthly_production_hours"))
+	if err != nil {
+		http.Error(w, applicationPublicError(err), http.StatusBadRequest)
+		return
+	}
+	markup, err := parseRequiredNumber("наценка", r.FormValue("default_markup_percent"))
+	if err != nil {
+		http.Error(w, applicationPublicError(err), http.StatusBadRequest)
+		return
+	}
+	err = s.lifecycle.SaveCompanyEconomics(r.Context(), companyIDForRequest(s, r), model.CompanyEconomics{
+		DefaultMarkupPercent: markup, MonthlyRent: rent, MonthlyProductionHours: hours,
+		RentAllocationMethod: model.AllocationByProductionHours,
+		Currency:             strings.ToUpper(strings.TrimSpace(r.FormValue("currency"))),
+	})
+	if err != nil {
+		s.renderEconomicsError(w, r, "save company production economics", err)
+		return
+	}
+	http.Redirect(w, r, "/economics?saved=1", http.StatusSeeOther)
+}
+
+func (s *Server) saveEquipmentEconomics(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	companyID := companyIDForRequest(s, r)
+	values := make([]float64, 9)
+	var err error
+	fields := []struct {
+		name string
+		key  string
+	}{
+		{"цена приобретения", "purchase_price"},
+		{"остаточная стоимость", "residual_value"},
+		{"срок службы", "useful_life_years"},
+		{"доступные часы в год", "annual_available_hours"},
+		{"мощность", "consumption_kw"},
+		{"цена электроэнергии", "electricity_price_per_kwh"},
+		{"обслуживание в год", "annual_maintenance_cost"},
+		{"ремонт в год", "annual_repair_cost"},
+		{"прочие расходы станка в год", "annual_other_cost"},
+	}
+	for index, field := range fields {
+		values[index], err = parseRequiredNumber(field.name, r.FormValue(field.key))
+		if err != nil {
+			http.Error(w, applicationPublicError(err), http.StatusBadRequest)
+			return
+		}
+	}
+	item := model.EquipmentEconomics{
+		EquipmentID: r.FormValue("equipment_id"), PurchasePrice: values[0],
+		ResidualValue: values[1], UsefulLifeYears: values[2],
+		AnnualAvailableHours: values[3], ConsumptionKW: values[4],
+		ElectricityPricePerKWh: values[5], AnnualMaintenanceCost: values[6],
+		AnnualRepairCost: values[7], AnnualOtherCost: values[8],
+	}
+	if err := s.lifecycle.SaveEquipmentEconomics(r.Context(), companyID, item); err != nil {
+		s.renderEconomicsError(w, r, "save equipment economics", err)
+		return
+	}
+	http.Redirect(w, r, "/economics?saved=1", http.StatusSeeOther)
+}
+
+func (s *Server) deleteEquipmentEconomics(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	if err := s.lifecycle.DeleteEquipmentEconomics(r.Context(), companyIDForRequest(s, r), r.FormValue("equipment_id")); err != nil {
+		s.renderEconomicsError(w, r, "delete equipment economics", err)
+		return
+	}
+	http.Redirect(w, r, "/economics?deleted=1", http.StatusSeeOther)
+}
+
+func (s *Server) savePersonnelRate(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	monthlyCost, err := parseRequiredNumber("стоимость персонала в месяц", r.FormValue("monthly_cost"))
+	if err != nil {
+		http.Error(w, applicationPublicError(err), http.StatusBadRequest)
+		return
+	}
+	availableHours, err := parseRequiredNumber("доступные часы в месяц", r.FormValue("monthly_available_hours"))
+	if err != nil {
+		http.Error(w, applicationPublicError(err), http.StatusBadRequest)
+		return
+	}
+	settings, err := s.lifecycle.GetCompanySettings(r.Context(), companyIDForRequest(s, r))
+	if err != nil {
+		s.workspaceInternalError(w, "load currency for personnel rate", err)
+		return
+	}
+	err = s.lifecycle.SavePersonnelRate(r.Context(), companyIDForRequest(s, r), model.PersonnelRate{
+		ID: r.FormValue("id"), Role: r.FormValue("role"),
+		MonthlyCost: monthlyCost, MonthlyAvailableHours: availableHours, Currency: settings.Currency,
+	})
+	if err != nil {
+		s.renderEconomicsError(w, r, "save personnel rate", err)
+		return
+	}
+	http.Redirect(w, r, "/economics?saved=1", http.StatusSeeOther)
+}
+
+func (s *Server) deletePersonnelRate(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	if err := s.lifecycle.DeletePersonnelRate(r.Context(), companyIDForRequest(s, r), r.FormValue("id")); err != nil {
+		s.renderEconomicsError(w, r, "delete personnel rate", err)
+		return
+	}
+	http.Redirect(w, r, "/economics?deleted=1", http.StatusSeeOther)
+}
+
+func (s *Server) saveCompanyOverhead(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	amount, err := parseRequiredNumber("сумма накладных расходов", r.FormValue("amount"))
+	if err != nil {
+		http.Error(w, applicationPublicError(err), http.StatusBadRequest)
+		return
+	}
+	settings, err := s.lifecycle.GetCompanySettings(r.Context(), companyIDForRequest(s, r))
+	if err != nil {
+		s.workspaceInternalError(w, "load currency for company overhead", err)
+		return
+	}
+	item := model.CompanyOverhead{
+		ID: r.FormValue("id"), Name: strings.TrimSpace(r.FormValue("name")),
+		Category: r.FormValue("category"), Amount: amount, Period: r.FormValue("period"),
+		AllocationMethod: model.AllocationByProductionHours,
+		Active:           r.FormValue("active") == "true", Currency: settings.Currency,
+	}
+	if err := s.lifecycle.SaveCompanyOverhead(r.Context(), companyIDForRequest(s, r), item); err != nil {
+		s.renderEconomicsError(w, r, "save company overhead", err)
+		return
+	}
+	http.Redirect(w, r, "/economics?saved=1", http.StatusSeeOther)
+}
+
+func (s *Server) deleteCompanyOverhead(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	if err := s.lifecycle.DeleteCompanyOverhead(r.Context(), companyIDForRequest(s, r), r.FormValue("id")); err != nil {
+		s.renderEconomicsError(w, r, "delete company overhead", err)
+		return
+	}
+	http.Redirect(w, r, "/economics?deleted=1", http.StatusSeeOther)
+}
+
+func (s *Server) renderPostgresStockBlanks(w http.ResponseWriter, r *http.Request) {
+	companyID := companyIDForRequest(s, r)
+	items, err := s.lifecycle.ListStockBlanks(r.Context(), companyID)
+	if err != nil {
+		s.workspaceInternalError(w, "list PostgreSQL stock blanks", err)
+		return
+	}
+	materials, err := s.lifecycle.ListMaterials(r.Context(), companyID)
+	if err != nil {
+		s.workspaceInternalError(w, "list materials for PostgreSQL stock blanks", err)
+		return
+	}
+	page := s.workspaceBase(r, "Заготовки компании", "stock-blanks", "stock-blanks")
+	page.StockBlanks, page.Materials = items, materials
+	s.render(w, r, "workspace.html", http.StatusOK, page)
+}
+
+func (s *Server) renderEconomicsError(w http.ResponseWriter, r *http.Request, action string, err error) {
+	status := http.StatusInternalServerError
+	message := "Не удалось сохранить экономические данные. Попробуйте позже."
+	switch {
+	case errors.Is(err, application.ErrNotFound):
+		status, message = http.StatusNotFound, "Запись не найдена или недоступна в текущей компании."
+	case isLifecycleValidationError(err):
+		status, message = http.StatusBadRequest, applicationPublicError(err)
+	default:
+		log.Printf("%s: %v", action, err)
+	}
+	page, loadErr := s.loadEconomicsWorkspace(r)
+	if loadErr != nil {
+		s.workspaceInternalError(w, "reload economics after error", loadErr)
+		return
+	}
+	page.Error = message
+	s.render(w, r, "workspace.html", status, page)
+}
+
+func (s *Server) renderPostgresStockBlankForm(w http.ResponseWriter, r *http.Request, create bool) {
+	companyID := companyIDForRequest(s, r)
+	settings, err := s.lifecycle.GetCompanySettings(r.Context(), companyID)
+	if err != nil {
+		s.workspaceInternalError(w, "load settings for stock blank", err)
+		return
+	}
+	materials, err := s.lifecycle.ListMaterials(r.Context(), companyID)
+	if err != nil {
+		s.workspaceInternalError(w, "list materials for stock blank form", err)
+		return
+	}
+	page := s.workspaceBase(r, "Новая заготовка", "stock-blanks", "stock-blank-form")
+	page.Materials = materials
+	page.StockBlankForm = postgresStockBlankForm{Shape: string(model.StockBlankShapeRectangular), Currency: settings.Currency}
+	if create {
+		s.render(w, r, "workspace.html", http.StatusOK, page)
+		return
+	}
+	if !create {
+		items, err := s.lifecycle.ListStockBlanks(r.Context(), companyID)
+		if err != nil {
+			s.workspaceInternalError(w, "load stock blank for edit", err)
+			return
+		}
+		id := strings.TrimSpace(r.URL.Query().Get("id"))
+		for _, item := range items {
+			if item.ID == id {
+				page.Title = "Редактировать заготовку"
+				page.StockBlankForm = postgresStockBlankForm{
+					ID: item.ID, Name: item.Name, MaterialID: item.MaterialID,
+					Shape: string(item.Shape), Length: formatNumber(item.Length),
+					Width: formatNumber(item.Width), Height: formatNumber(item.Height),
+					Diameter: formatNumber(item.Diameter), PricePerPiece: formatNumber(item.PricePerPiece),
+					Currency: item.Currency,
+				}
+				s.render(w, r, "workspace.html", http.StatusOK, page)
+				return
+			}
+		}
+		http.NotFound(w, r)
+	}
+}
+
+func (s *Server) savePostgresStockBlank(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	form := postgresStockBlankForm{
+		ID: strings.TrimSpace(r.FormValue("id")), Name: strings.TrimSpace(r.FormValue("name")),
+		MaterialID: strings.TrimSpace(r.FormValue("material_id")), Shape: strings.TrimSpace(r.FormValue("shape")),
+		Length: strings.TrimSpace(r.FormValue("length")), Width: strings.TrimSpace(r.FormValue("width")),
+		Height: strings.TrimSpace(r.FormValue("height")), Diameter: strings.TrimSpace(r.FormValue("diameter")),
+		PricePerPiece: strings.TrimSpace(r.FormValue("price_per_piece")),
+		Currency:      strings.ToUpper(strings.TrimSpace(r.FormValue("currency"))),
+	}
+	length, err := parseRequiredNumber("Длина", form.Length)
+	if err != nil {
+		s.renderPostgresStockBlankError(w, r, form, err.Error())
+		return
+	}
+	width, err := parseOptionalFloat(form.Width)
+	if err != nil {
+		s.renderPostgresStockBlankError(w, r, form, "Укажите корректную ширину.")
+		return
+	}
+	height, err := parseOptionalFloat(form.Height)
+	if err != nil {
+		s.renderPostgresStockBlankError(w, r, form, "Укажите корректную высоту.")
+		return
+	}
+	diameter, err := parseOptionalFloat(form.Diameter)
+	if err != nil {
+		s.renderPostgresStockBlankError(w, r, form, "Укажите корректный диаметр.")
+		return
+	}
+	price, err := parseRequiredNumber("Цена за штуку", form.PricePerPiece)
+	if err != nil {
+		s.renderPostgresStockBlankError(w, r, form, err.Error())
+		return
+	}
+	_, err = s.lifecycle.SaveStockBlank(r.Context(), companyIDForRequest(s, r), model.StockBlank{
+		ID: form.ID, Name: form.Name, MaterialID: form.MaterialID, Shape: model.StockBlankShape(form.Shape),
+		Length: length, Width: width, Height: height, Diameter: diameter,
+		PricePerPiece: price, Currency: form.Currency,
+	})
+	if err != nil {
+		s.renderPostgresStockBlankError(w, r, form, applicationPublicError(err))
+		return
+	}
+	http.Redirect(w, r, "/stock-blanks?saved=1", http.StatusSeeOther)
+}
+
+func (s *Server) renderPostgresStockBlankError(w http.ResponseWriter, r *http.Request, form postgresStockBlankForm, message string) {
+	materials, err := s.lifecycle.ListMaterials(r.Context(), companyIDForRequest(s, r))
+	if err != nil {
+		s.workspaceInternalError(w, "reload materials for stock blank error", err)
+		return
+	}
+	page := s.workspaceBase(r, "Заготовка", "stock-blanks", "stock-blank-form")
+	page.Materials, page.StockBlankForm, page.Error = materials, form, message
+	s.render(w, r, "workspace.html", http.StatusBadRequest, page)
+}
+
+func (s *Server) deletePostgresStockBlank(w http.ResponseWriter, r *http.Request) {
+	if !s.parseMutationForm(w, r) {
+		return
+	}
+	if err := s.lifecycle.DeleteStockBlank(r.Context(), companyIDForRequest(s, r), r.FormValue("id")); err != nil {
+		s.workspaceInternalError(w, "delete PostgreSQL stock blank", err)
+		return
+	}
+	http.Redirect(w, r, "/stock-blanks?deleted=1", http.StatusSeeOther)
 }
 
 func (s *Server) renderCompanyError(w http.ResponseWriter, r *http.Request, company model.Company, settings model.CompanySettings, message string) {
@@ -513,6 +959,8 @@ func (s *Server) renderConsumableWorkspaceForm(w http.ResponseWriter, r *http.Re
 	if create {
 		page.ConsumableForm.StockQuantity = "0"
 		page.ConsumableForm.UnitPrice = "0"
+		page.ConsumableForm.ResourceMinutes = "0"
+		page.ConsumableForm.ResourceUnits = "0"
 	} else {
 		items, err := s.lifecycle.ListConsumables(r.Context(), companyIDForRequest(s, r))
 		if err != nil {
@@ -528,6 +976,8 @@ func (s *Server) renderConsumableWorkspaceForm(w http.ResponseWriter, r *http.Re
 					DiameterMm: formatNumber(item.DiameterMm), FluteCount: strconv.Itoa(item.FluteCount),
 					ToolMaterial: item.ToolMaterial, Coating: item.Coating, LengthMm: formatNumber(item.LengthMm),
 					StockQuantity: strconv.Itoa(item.StockQuantity), UnitPrice: formatNumber(item.UnitPrice), Currency: item.Currency,
+					ResourceMinutes: formatNumber(item.ResourceMinutes), ResourceUnits: formatNumber(item.ResourceUnits),
+					ResourceUnitName: item.ResourceUnitName,
 				}
 				found = true
 				break
@@ -552,6 +1002,9 @@ func (s *Server) saveConsumableWorkspace(w http.ResponseWriter, r *http.Request)
 		ToolMaterial: strings.TrimSpace(r.FormValue("tool_material")), Coating: strings.TrimSpace(r.FormValue("coating")),
 		LengthMm: strings.TrimSpace(r.FormValue("length_mm")), StockQuantity: strings.TrimSpace(r.FormValue("stock_quantity")),
 		UnitPrice: strings.TrimSpace(r.FormValue("unit_price")), Currency: strings.ToUpper(strings.TrimSpace(r.FormValue("currency"))),
+		ResourceMinutes:  strings.TrimSpace(r.FormValue("resource_minutes")),
+		ResourceUnits:    strings.TrimSpace(r.FormValue("resource_units")),
+		ResourceUnitName: strings.TrimSpace(r.FormValue("resource_unit_name")),
 	}
 	diameter, err := parseRequiredNumber("Диаметр", form.DiameterMm)
 	if err != nil {
@@ -578,12 +1031,23 @@ func (s *Server) saveConsumableWorkspace(w http.ResponseWriter, r *http.Request)
 		s.renderConsumableError(w, r, form, err.Error())
 		return
 	}
+	resourceMinutes, err := parseRequiredNumber("Ресурс инструмента в минутах", form.ResourceMinutes)
+	if err != nil {
+		s.renderConsumableError(w, r, form, err.Error())
+		return
+	}
+	resourceUnits, err := parseRequiredNumber("Ресурс инструмента в базовых единицах", form.ResourceUnits)
+	if err != nil {
+		s.renderConsumableError(w, r, form, err.Error())
+		return
+	}
 	_, err = s.lifecycle.SaveConsumable(r.Context(), companyIDForRequest(s, r), model.Consumable{
 		ID: form.ID, CompanyID: companyIDForRequest(s, r), Category: model.ConsumableCutter,
 		Name: form.Name, Manufacturer: form.Manufacturer, ToolType: form.ToolType,
 		DiameterMm: diameter, FluteCount: flutes, ToolMaterial: form.ToolMaterial,
 		Coating: form.Coating, LengthMm: length, StockQuantity: quantity,
-		UnitPrice: price, Currency: form.Currency, Attributes: json.RawMessage(`{}`),
+		UnitPrice: price, ResourceMinutes: resourceMinutes, ResourceUnits: resourceUnits,
+		ResourceUnitName: form.ResourceUnitName, Currency: form.Currency, Attributes: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		s.renderConsumableError(w, r, form, applicationPublicError(err))

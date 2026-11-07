@@ -19,25 +19,29 @@ import (
 
 type lifecyclePage struct {
 	pageBase
-	Company    model.Company
-	View       string
-	Projects   []application.ProjectRecord
-	Project    application.ProjectRecord
-	Parts      []application.PartRecord
-	Part       application.PartRecord
-	Revisions  []application.PartRevisionRecord
-	Revision   application.PartRevisionRecord
-	Estimates  []application.EstimateRecord
-	Estimate   application.EstimateRecord
-	Versions   []application.EstimateVersionRecord
-	Version    application.EstimateVersionRecord
-	Result     model.Estimate
-	Equipment  []model.Equipment
-	Markup     string
-	FormName   string
-	FormDesc   string
-	FormAction string
-	FormSubmit string
+	Company         model.Company
+	View            string
+	Projects        []application.ProjectRecord
+	Project         application.ProjectRecord
+	Parts           []application.PartRecord
+	Part            application.PartRecord
+	Revisions       []application.PartRevisionRecord
+	Revision        application.PartRevisionRecord
+	Estimates       []application.EstimateRecord
+	Estimate        application.EstimateRecord
+	Versions        []application.EstimateVersionRecord
+	Version         application.EstimateVersionRecord
+	Result          model.Estimate
+	Equipment       []model.Equipment
+	Materials       []model.Material
+	GlobalMaterials []model.GlobalMaterial
+	StockBlanks     []model.StockBlank
+	Consumables     []model.Consumable
+	Markup          string
+	FormName        string
+	FormDesc        string
+	FormAction      string
+	FormSubmit      string
 }
 
 func (s *Server) serveLifecycle(w http.ResponseWriter, r *http.Request) bool {
@@ -248,9 +252,31 @@ func (s *Server) renderRevision(w http.ResponseWriter, r *http.Request, revision
 		s.lifecycleError(w, r, "load PostgreSQL company settings for estimate", err)
 		return
 	}
+	materials, err := s.lifecycle.ListMaterials(r.Context(), companyIDForRequest(s, r))
+	if err != nil {
+		s.lifecycleError(w, r, "load company materials for estimate", err)
+		return
+	}
+	globalMaterials, err := s.lifecycle.ListGlobalMaterials(r.Context())
+	if err != nil {
+		s.lifecycleError(w, r, "load global reference materials for estimate", err)
+		return
+	}
+	stockBlanks, err := s.lifecycle.ListStockBlanks(r.Context(), companyIDForRequest(s, r))
+	if err != nil {
+		s.lifecycleError(w, r, "load company stock blanks for estimate", err)
+		return
+	}
+	consumables, err := s.lifecycle.ListConsumables(r.Context(), companyIDForRequest(s, r))
+	if err != nil {
+		s.lifecycleError(w, r, "load company tooling for estimate", err)
+		return
+	}
 	page := s.lifecycleBase(r, detail.Part.Name+" — ревизия", "projects", "revision")
 	page.Project, page.Part, page.Revision = detail.Project, detail.Part, detail.Revision
 	page.Estimates, page.Equipment = detail.Estimates, activeEquipment(equipment)
+	page.Materials, page.GlobalMaterials = materials, globalMaterials
+	page.StockBlanks, page.Consumables = stockBlanks, consumables
 	page.Markup = formatNumber(settings.DefaultMarkupPercent)
 	s.render(w, r, "lifecycle.html", http.StatusOK, page)
 }
@@ -282,20 +308,55 @@ func (s *Server) calculateRevision(w http.ResponseWriter, r *http.Request, revis
 		s.renderRevisionLifecycleError(w, r, revisionID, application.Invalid("Укажите корректный процент наценки.", nil))
 		return
 	}
-	_, version, err := s.lifecycle.Calculate(
+	quantity := 1
+	if strings.TrimSpace(r.FormValue("quantity")) != "" {
+		quantity, err = strconv.Atoi(strings.TrimSpace(r.FormValue("quantity")))
+		if err != nil {
+			s.renderRevisionLifecycleError(w, r, revisionID, application.Invalid("Укажите целое количество деталей.", err))
+			return
+		}
+	}
+	setupMinutes, err := parseOptionalFloat(r.FormValue("setup_time_minutes"))
+	if err != nil {
+		s.renderRevisionLifecycleError(w, r, revisionID, application.Invalid("Укажите корректное время наладки.", err))
+		return
+	}
+	programmingHours, err := parseOptionalFloat(r.FormValue("programming_hours"))
+	if err != nil {
+		s.renderRevisionLifecycleError(w, r, revisionID, application.Invalid("Укажите корректное время программирования.", err))
+		return
+	}
+	toolUsageMinutes, err := parseOptionalFloat(r.FormValue("tool_usage_minutes"))
+	if err != nil {
+		s.renderRevisionLifecycleError(w, r, revisionID, application.Invalid("Укажите корректный ресурс инструмента.", err))
+		return
+	}
+	_, version, err := s.lifecycle.CalculateWithProductionEconomics(
 		r.Context(), companyIDForRequest(s, r), revisionID, r.FormValue("estimate_name"),
-		r.FormValue("equipment_id"), markup,
-	)
+		r.FormValue("equipment_id"), markup, application.ProductionEstimateOptions{
+			Quantity: quantity, SetupTimeMinutes: setupMinutes, ProgrammingHours: programmingHours,
+			MaterialID: r.FormValue("material_id"), StockBlankID: r.FormValue("stock_blank_id"),
+			GlobalMaterialID: r.FormValue("global_material_id"),
+			ConsumableID:     r.FormValue("consumable_id"), ToolUsageMinutes: toolUsageMinutes,
+		})
 	if err != nil {
 		s.renderRevisionLifecycleError(w, r, revisionID, err)
 		return
 	}
+
 	estimate, err := s.lifecycle.GetEstimate(r.Context(), companyIDForRequest(s, r), version.EstimateID)
 	if err != nil {
 		s.writeInternalError(w, "get newly saved estimate", err)
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/estimates/%s/versions/%s", estimate.ID, version.ID), http.StatusSeeOther)
+}
+
+func parseOptionalFloat(value string) (float64, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	return strconv.ParseFloat(strings.TrimSpace(value), 64)
 }
 
 func (s *Server) renderEstimate(w http.ResponseWriter, r *http.Request, estimateID string) {

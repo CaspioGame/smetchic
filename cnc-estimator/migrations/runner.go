@@ -281,6 +281,46 @@ func detectMigrationState(ctx context.Context, connection *sql.Conn, version int
 			return migrationAbsent, nil
 		}
 		return migrationPresent, nil
+	case 6:
+		var count int
+		err := connection.QueryRowContext(ctx, `
+			SELECT
+				(EXISTS (
+					SELECT 1 FROM information_schema.tables
+					WHERE table_schema = ANY(current_schemas(false))
+					  AND table_name = 'company_economics'
+				))::int
+				+ (EXISTS (
+					SELECT 1 FROM information_schema.tables
+					WHERE table_schema = ANY(current_schemas(false))
+					  AND table_name = 'equipment_economics'
+				))::int
+				+ (EXISTS (
+					SELECT 1 FROM information_schema.tables
+					WHERE table_schema = ANY(current_schemas(false))
+					  AND table_name = 'personnel_rates'
+				))::int
+				+ (EXISTS (
+					SELECT 1 FROM information_schema.tables
+					WHERE table_schema = ANY(current_schemas(false))
+					  AND table_name = 'company_overheads'
+				))::int
+				+ (EXISTS (
+					SELECT 1 FROM information_schema.columns
+					WHERE table_schema = ANY(current_schemas(false))
+					  AND table_name = 'consumables'
+					  AND column_name = 'resource_minutes'
+				))::int
+				+ (EXISTS (
+					SELECT 1 FROM information_schema.columns
+					WHERE table_schema = ANY(current_schemas(false))
+					  AND table_name = 'company_overheads'
+					  AND column_name = 'category'
+				))::int`).Scan(&count)
+		if err != nil {
+			return migrationAbsent, err
+		}
+		return stateFromCount(count, 6), nil
 	default:
 		return migrationAbsent, nil
 	}

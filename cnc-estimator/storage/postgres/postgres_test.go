@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -137,6 +138,29 @@ func TestPostgresIntegration(t *testing.T) {
 	}
 }
 
+func TestProductionEconomicsMigrationContainsCostInputs(t *testing.T) {
+	migrationPath := filepath.Join("..", "..", "migrations", "006_production_economics.sql")
+	migration, err := os.ReadFile(migrationPath)
+	if err != nil {
+		t.Fatalf("read production economics migration: %v", err)
+	}
+	text := string(migration)
+	for _, expected := range []string{
+		"CREATE TABLE company_economics",
+		"CREATE TABLE equipment_economics",
+		"CREATE TABLE personnel_rates",
+		"CREATE TABLE company_overheads",
+		"category TEXT NOT NULL CHECK (category IN ('utilities', 'other'))",
+		"ADD COLUMN resource_minutes",
+		"ADD COLUMN resource_units",
+		"SELECT company_id, default_markup_percent, currency FROM company_settings",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("production economics migration does not contain %q", expected)
+		}
+	}
+}
+
 func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	databaseURL := os.Getenv(DatabaseEnvVar)
 	if databaseURL == "" {
@@ -182,6 +206,7 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	migrations := []string{
 		"001_initial.sql", "002_project_lifecycle.sql", "003_auth.sql",
 		"004_workspace.sql", "005_allow_multiple_orders_per_project.sql",
+		"006_production_economics.sql",
 	}
 	for _, migrationName := range migrations {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", migrationName))
@@ -269,6 +294,43 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	if err := service.EnsureEquipment(ctx, equipment); err != nil {
 		t.Fatalf("create equipment: %v", err)
 	}
+	if err := service.SaveCompanyEconomics(ctx, company.ID, model.CompanyEconomics{
+		DefaultMarkupPercent: 18, MonthlyRent: 900, MonthlyProductionHours: 120,
+		RentAllocationMethod: model.AllocationByProductionHours, Currency: "RUB",
+	}); err != nil {
+		t.Fatalf("save company production economics: %v", err)
+	}
+	if err := service.SaveEquipmentEconomics(ctx, company.ID, model.EquipmentEconomics{
+		EquipmentID: equipment.ID, PurchasePrice: 1_000_000, ResidualValue: 100_000,
+		UsefulLifeYears: 10, AnnualAvailableHours: 1800, ConsumptionKW: 8,
+		ElectricityPricePerKWh: 7, AnnualMaintenanceCost: 20_000,
+		AnnualRepairCost: 10_000, AnnualOtherCost: 5_000,
+	}); err != nil {
+		t.Fatalf("save equipment economics: %v", err)
+	}
+	if err := service.SavePersonnelRate(ctx, company.ID, model.PersonnelRate{
+		Role: "operator", MonthlyCost: 80_000, MonthlyAvailableHours: 160, Currency: "RUB",
+	}); err != nil {
+		t.Fatalf("save personnel rate: %v", err)
+	}
+	if err := service.SaveCompanyOverhead(ctx, company.ID, model.CompanyOverhead{
+		Name: "Utilities", Category: model.OverheadUtilities, Amount: 12_000,
+		Period: model.OverheadMonthly, AllocationMethod: model.AllocationByProductionHours,
+		Active: true, Currency: "RUB",
+	}); err != nil {
+		t.Fatalf("save company overhead: %v", err)
+	}
+	productionEconomics, err := service.ListProductionEconomics(ctx, company.ID)
+	if err != nil || productionEconomics.Company.MonthlyRent != 900 ||
+		len(productionEconomics.Equipment) != 1 || len(productionEconomics.Personnel) != 1 ||
+		len(productionEconomics.Overheads) != 1 {
+		t.Fatalf("production economics = %#v, error = %v", productionEconomics, err)
+	}
+	otherEconomics, err := service.ListProductionEconomics(ctx, registeredCompany.ID)
+	if err != nil || len(otherEconomics.Equipment) != 0 ||
+		len(otherEconomics.Personnel) != 0 || len(otherEconomics.Overheads) != 0 {
+		t.Fatalf("other company production economics = %#v, error = %v", otherEconomics, err)
+	}
 	if loadedCompany, err := service.GetCompany(ctx, company.ID); err != nil || loadedCompany.Name != company.Name {
 		t.Fatalf("read company = %#v, error = %v", loadedCompany, err)
 	}
@@ -302,6 +364,35 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 			t.Errorf("%s snapshot is not valid JSON: %s", label, snapshot)
 		}
 	}
+	var resultSnapshot map[string]json.RawMessage
+	if err := json.Unmarshal(version.ResultSnapshot, &resultSnapshot); err != nil {
+		t.Fatalf("decode result snapshot: %v", err)
+	}
+	if len(resultSnapshot["cost_breakdown"]) == 0 {
+		t.Fatal("estimate result snapshot does not contain production cost breakdown")
+	}
+	originalVersion, err := service.GetEstimateVersion(ctx, company.ID, estimate.ID, version.ID)
+	if err != nil {
+		t.Fatalf("read persisted estimate snapshots before economics change: %v", err)
+	}
+	originalInput := append(json.RawMessage(nil), originalVersion.Version.InputSnapshot...)
+	originalSettings := append(json.RawMessage(nil), originalVersion.Version.SettingsSnapshot...)
+	originalResult := append(json.RawMessage(nil), originalVersion.Version.ResultSnapshot...)
+	if err := service.SaveCompanyEconomics(ctx, company.ID, model.CompanyEconomics{
+		DefaultMarkupPercent: 40, MonthlyRent: 4000, MonthlyProductionHours: 160,
+		RentAllocationMethod: model.AllocationByProductionHours, Currency: "RUB",
+	}); err != nil {
+		t.Fatalf("change company economics after estimate: %v", err)
+	}
+	reloadedVersion, err := service.GetEstimateVersion(ctx, company.ID, estimate.ID, version.ID)
+	if err != nil {
+		t.Fatalf("read version after changing economics: %v", err)
+	}
+	if !bytes.Equal(reloadedVersion.Version.InputSnapshot, originalInput) ||
+		!bytes.Equal(reloadedVersion.Version.SettingsSnapshot, originalSettings) ||
+		!bytes.Equal(reloadedVersion.Version.ResultSnapshot, originalResult) {
+		t.Fatal("historical estimate snapshots changed after company economics were updated")
+	}
 
 	otherCompany := model.Company{ID: "other-integration-company", Name: "Other company"}
 	if err := service.EnsureCompany(ctx, otherCompany, model.CompanySettings{
@@ -332,6 +423,21 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	if err != nil || len(companyMaterials) != 1 || companyMaterials[0].ID != "workspace-integration-material" {
 		t.Fatalf("company materials = %#v, error = %v", companyMaterials, err)
 	}
+	if _, err := service.SaveStockBlank(ctx, company.ID, model.StockBlank{
+		ID: "workspace-integration-blank", MaterialID: "workspace-integration-material",
+		Name: "Aluminum blank", Shape: model.StockBlankShapeRectangular,
+		Length: 100, Width: 50, Height: 20, PricePerPiece: 1500, Currency: "RUB",
+	}); err != nil {
+		t.Fatalf("save company stock blank: %v", err)
+	}
+	companyStockBlanks, err := service.ListStockBlanks(ctx, company.ID)
+	if err != nil || len(companyStockBlanks) != 1 || companyStockBlanks[0].PricePerPiece != 1500 {
+		t.Fatalf("company stock blanks = %#v, error = %v", companyStockBlanks, err)
+	}
+	otherStockBlanks, err := service.ListStockBlanks(ctx, registeredCompany.ID)
+	if err != nil || len(otherStockBlanks) != 0 {
+		t.Fatalf("other company stock blanks = %#v, error = %v", otherStockBlanks, err)
+	}
 	otherMaterials, err := service.ListMaterials(ctx, otherCompany.ID)
 	if err != nil || len(otherMaterials) != 0 {
 		t.Fatalf("other company materials = %#v, error = %v", otherMaterials, err)
@@ -343,12 +449,14 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	if _, err := service.SaveConsumable(ctx, company.ID, model.Consumable{
 		ID: "workspace-integration-cutter", Category: model.ConsumableCutter,
 		Name: "Carbide end mill", DiameterMm: 10, FluteCount: 4, LengthMm: 60,
-		StockQuantity: 3, UnitPrice: 1200, Currency: "RUB", Attributes: json.RawMessage(`{}`),
+		StockQuantity: 3, UnitPrice: 1200, ResourceMinutes: 600, ResourceUnits: 200,
+		ResourceUnitName: "cutting edges", Currency: "RUB", Attributes: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatalf("save company consumable: %v", err)
 	}
 	companyConsumables, err := service.ListConsumables(ctx, company.ID)
-	if err != nil || len(companyConsumables) != 1 || companyConsumables[0].ID != "workspace-integration-cutter" {
+	if err != nil || len(companyConsumables) != 1 || companyConsumables[0].ID != "workspace-integration-cutter" ||
+		companyConsumables[0].ResourceMinutes != 600 || companyConsumables[0].ResourceUnits != 200 {
 		t.Fatalf("company consumables = %#v, error = %v", companyConsumables, err)
 	}
 	otherConsumables, err := service.ListConsumables(ctx, otherCompany.ID)

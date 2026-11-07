@@ -118,6 +118,12 @@ func (repository *LifecycleRepository) RegisterCompanyWithOwner(
 		return fmt.Errorf("insert registered company settings: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO company_economics (company_id, currency, default_markup_percent)
+		VALUES ($1, $2, $3)`,
+		settings.CompanyID, settings.Currency, settings.DefaultMarkupPercent); err != nil {
+		return fmt.Errorf("insert registered company production economics: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (id, email, name, password_hash)
 		VALUES ($1, $2, $3, $4)`,
 		user.ID, user.Email, user.Name, passwordHash); err != nil {

@@ -5,14 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"path/filepath"
 	"strings"
 
-	"smetchic/estimator"
 	"smetchic/model"
 	"smetchic/parser"
 )
@@ -189,85 +186,8 @@ func (service *Service) ListEstimatesForRevision(ctx context.Context, companyID,
 }
 
 func (service *Service) Calculate(ctx context.Context, companyID, revisionID, estimateName, equipmentID string, markup float64) (EstimateRecord, EstimateVersionRecord, error) {
-	if math.IsNaN(markup) || math.IsInf(markup, 0) || markup < 0 {
-		return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Наценка должна быть конечным неотрицательным числом.", nil)
-	}
-	detail, err := service.repository.GetRevisionEstimate(ctx, companyID, revisionID)
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, err
-	}
-	equipment, err := service.config.GetEquipment(ctx, companyID, equipmentID)
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("не удалось получить станок: %w", err)
-	}
-	if equipment.Status != model.EquipmentStatusActive {
-		return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Для расчёта можно выбрать только активный станок.", nil)
-	}
-	settings, err := service.config.GetCompanySettings(ctx, companyID)
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("не удалось получить настройки компании: %w", err)
-	}
-	if err := settings.Validate(); err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("некорректные настройки компании: %w", err)
-	}
-	if settings.CompanyID != companyID {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("настройки компании не соответствуют текущей компании")
-	}
-
-	result, err := estimator.Calculate(detail.Revision.ParsedPart, equipment, model.EstimateSettings{
-		EquipmentID: equipment.ID, MarkupPercent: markup,
-	})
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("расчёт не выполнен: %w", err)
-	}
-	inputSnapshot, err := json.Marshal(struct {
-		Project  ProjectRecord
-		Part     PartRecord
-		Revision PartRevisionRecord
-	}{detail.Project, detail.Part, detail.Revision})
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("serialize estimate input: %w", err)
-	}
-	settingsSnapshot, err := json.Marshal(struct {
-		CompanySettings  model.CompanySettings
-		Equipment        model.Equipment
-		EstimateSettings model.EstimateSettings
-	}{settings, equipment, result.Settings})
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("serialize estimate settings: %w", err)
-	}
-	resultSnapshot, err := json.Marshal(result)
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("serialize estimate result: %w", err)
-	}
-	estimateName = strings.TrimSpace(estimateName)
-	if estimateName == "" {
-		estimateName = "Расчёт"
-	}
-	estimateID, err := newID("estimate")
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, err
-	}
-	versionID, err := newID("estimate-version")
-	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, err
-	}
-	currency := settings.Currency
-	estimate := EstimateRecord{
-		ID: estimateID, CompanyID: companyID, PartRevisionID: revisionID, Name: estimateName,
-	}
-	version := EstimateVersionRecord{
-		ID: versionID, CompanyID: companyID, PartRevisionID: revisionID,
-		EquipmentID: equipment.ID, EquipmentModelID: equipment.EquipmentModelID,
-		InputSnapshot: inputSnapshot, SettingsSnapshot: settingsSnapshot, ResultSnapshot: resultSnapshot,
-		MachineTimeHours: result.TotalMachineTime / 60,
-		HourlyRate:       equipment.MachineRatePerHour,
-		MachineCost:      result.MachineCost,
-		MarkupPercent:    markup,
-		FinalPrice:       result.SuggestedPrice,
-		Currency:         currency,
-	}
-	return service.repository.CreateEstimateVersion(ctx, estimate, version)
+	return service.CalculateWithProductionEconomics(ctx, companyID, revisionID, estimateName, equipmentID, markup,
+		ProductionEstimateOptions{Quantity: 1})
 }
 
 func (service *Service) GetEstimate(ctx context.Context, companyID, estimateID string) (EstimateRecord, error) {

@@ -61,6 +61,69 @@ func (repository *workspaceTestRepository) ListGlobalMaterials(context.Context) 
 	}, nil
 }
 
+func (repository *workspaceTestRepository) GetCompanyEconomics(_ context.Context, companyID string) (model.CompanyEconomics, error) {
+	return model.CompanyEconomics{
+		CompanyID: companyID, DefaultMarkupPercent: 50, Currency: "RUB",
+		RentAllocationMethod: model.AllocationByProductionHours,
+	}, nil
+}
+
+func (*workspaceTestRepository) SaveCompanyEconomics(context.Context, model.CompanyEconomics) error {
+	return nil
+}
+
+func (*workspaceTestRepository) ListEquipmentEconomics(context.Context, string) ([]model.EquipmentEconomics, error) {
+	return nil, nil
+}
+
+func (*workspaceTestRepository) GetEquipmentEconomics(context.Context, string, string) (*model.EquipmentEconomics, error) {
+	return nil, nil
+}
+
+func (*workspaceTestRepository) SaveEquipmentEconomics(context.Context, model.EquipmentEconomics) error {
+	return nil
+}
+
+func (*workspaceTestRepository) DeleteEquipmentEconomics(context.Context, string, string) error {
+	return nil
+}
+
+func (*workspaceTestRepository) ListPersonnelRates(context.Context, string) ([]model.PersonnelRate, error) {
+	return nil, nil
+}
+
+func (*workspaceTestRepository) SavePersonnelRate(context.Context, model.PersonnelRate) error {
+	return nil
+}
+
+func (*workspaceTestRepository) DeletePersonnelRate(context.Context, string, string) error {
+	return nil
+}
+
+func (*workspaceTestRepository) ListCompanyOverheads(context.Context, string) ([]model.CompanyOverhead, error) {
+	return nil, nil
+}
+
+func (*workspaceTestRepository) SaveCompanyOverhead(context.Context, model.CompanyOverhead) error {
+	return nil
+}
+
+func (*workspaceTestRepository) DeleteCompanyOverhead(context.Context, string, string) error {
+	return nil
+}
+
+func (*workspaceTestRepository) ListStockBlanks(context.Context, string) ([]model.StockBlank, error) {
+	return nil, nil
+}
+
+func (*workspaceTestRepository) SaveStockBlank(context.Context, model.StockBlank) error {
+	return nil
+}
+
+func (*workspaceTestRepository) DeleteStockBlank(context.Context, string, string) error {
+	return nil
+}
+
 func (repository *workspaceTestRepository) ListConsumables(context.Context, string) ([]model.Consumable, error) {
 	return nil, nil
 }
@@ -98,6 +161,7 @@ func TestAuthenticatedWorkspacePagesRenderWithoutJSONStore(t *testing.T) {
 		"/company", "/equipment", "/equipment/new", "/materials", "/materials/new",
 		"/consumables", "/consumables/new", "/catalog/equipment", "/catalog/materials",
 		"/catalog/materials/aluminum-6061", "/orders", "/orders/new", "/projects",
+		"/economics", "/economics?equipment_id=machine-test", "/stock-blanks", "/stock-blanks/new",
 	} {
 		t.Run(path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, path, nil)

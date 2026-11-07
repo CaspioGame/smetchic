@@ -11,23 +11,26 @@ import (
 const ConsumableCutter = "cutter"
 
 type Consumable struct {
-	ID            string
-	CompanyID     string
-	Category      string
-	Name          string
-	Manufacturer  string
-	ToolType      string
-	DiameterMm    float64
-	FluteCount    int
-	ToolMaterial  string
-	Coating       string
-	LengthMm      float64
-	StockQuantity int
-	UnitPrice     float64
-	Currency      string
-	Attributes    json.RawMessage
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID               string
+	CompanyID        string
+	Category         string
+	Name             string
+	Manufacturer     string
+	ToolType         string
+	DiameterMm       float64
+	FluteCount       int
+	ToolMaterial     string
+	Coating          string
+	LengthMm         float64
+	StockQuantity    int
+	UnitPrice        float64
+	ResourceMinutes  float64
+	ResourceUnits    float64
+	ResourceUnitName string
+	Currency         string
+	Attributes       json.RawMessage
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func (item Consumable) Validate() error {
@@ -39,6 +42,9 @@ func (item Consumable) Validate() error {
 	}
 	if item.StockQuantity < 0 || !finiteNonNegative(item.UnitPrice) {
 		return fmt.Errorf("consumable quantity and price must be non-negative")
+	}
+	if !finiteNonNegative(item.ResourceMinutes) || !finiteNonNegative(item.ResourceUnits) {
+		return fmt.Errorf("consumable resource must be non-negative")
 	}
 	if strings.TrimSpace(item.Currency) == "" {
 		return fmt.Errorf("consumable currency is required")
