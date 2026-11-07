@@ -179,7 +179,10 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open isolated integration connection: %v", err)
 	}
-	migrations := []string{"001_initial.sql", "002_project_lifecycle.sql", "003_auth.sql", "004_workspace.sql"}
+	migrations := []string{
+		"001_initial.sql", "002_project_lifecycle.sql", "003_auth.sql",
+		"004_workspace.sql", "005_allow_multiple_orders_per_project.sql",
+	}
 	for _, migrationName := range migrations {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", migrationName))
 		if err != nil {

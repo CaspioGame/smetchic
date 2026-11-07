@@ -45,7 +45,20 @@ func (repository *workspaceTestRepository) ListMaterials(context.Context, string
 }
 
 func (repository *workspaceTestRepository) ListGlobalMaterials(context.Context) ([]model.GlobalMaterial, error) {
-	return nil, nil
+	return []model.GlobalMaterial{
+		{
+			ID: "aluminum-6061", Name: "Aluminum", Grade: "6061",
+			Category: model.MaterialCategoryAluminum, Density: 2700,
+			ReferencePriceKg: 500, Currency: "RUB",
+			Description: "General-purpose aluminum alloy.",
+		},
+		{
+			ID: "steel-45", Name: "Steel", Grade: "45",
+			Category: model.MaterialCategorySteel, Density: 7850,
+			ReferencePriceKg: 180, Currency: "RUB",
+			Description: "Carbon steel.",
+		},
+	}, nil
 }
 
 func (repository *workspaceTestRepository) ListConsumables(context.Context, string) ([]model.Consumable, error) {
@@ -84,7 +97,7 @@ func TestAuthenticatedWorkspacePagesRenderWithoutJSONStore(t *testing.T) {
 	for _, path := range []string{
 		"/company", "/equipment", "/equipment/new", "/materials", "/materials/new",
 		"/consumables", "/consumables/new", "/catalog/equipment", "/catalog/materials",
-		"/orders", "/orders/new", "/projects",
+		"/catalog/materials/aluminum-6061", "/orders", "/orders/new", "/projects",
 	} {
 		t.Run(path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, path, nil)
@@ -99,6 +112,47 @@ func TestAuthenticatedWorkspacePagesRenderWithoutJSONStore(t *testing.T) {
 				t.Fatalf("GET %s did not render the authenticated workspace", path)
 			}
 		})
+	}
+}
+
+func TestGlobalMaterialsAreSearchableAndReadOnly(t *testing.T) {
+	repository := &workspaceTestRepository{webAuthRepository: newWebAuthRepository()}
+	user := model.User{ID: "workspace-operator", Email: "operator@example.test", Name: "Operator"}
+	repository.users[user.ID] = application.AuthUserRecord{User: user, Active: true}
+	repository.memberships[user.ID] = []application.AuthMembership{{
+		Company: model.Company{ID: "workspace-company", Name: "Workspace test company"},
+		Role:    model.CompanyRoleOperator,
+	}}
+	lifecycle := application.NewService(repository, repository)
+	handler, err := NewAuthenticatedLifecycleCabinetHandler(
+		nil, lifecycle, application.NewAuthenticationService(repository),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := handler.(*Server)
+	session, err := server.sessions.create(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/catalog/materials?q=6061", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID})
+	request.AddCookie(&http.Cookie{Name: csrfCookieName, Value: session.CSRFToken})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK ||
+		!strings.Contains(response.Body.String(), "Aluminum") ||
+		strings.Contains(response.Body.String(), "Steel") ||
+		!strings.Contains(response.Body.String(), "500.00 RUB/кг") {
+		t.Fatalf("global material search status = %d, body: %s", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/catalog/materials/save", strings.NewReader(""))
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID})
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("global material write status = %d, want 405", response.Code)
 	}
 }
 

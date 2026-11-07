@@ -43,23 +43,25 @@ type orderListRow struct {
 
 type workspacePage struct {
 	pageBase
-	View            string
-	Company         model.Company
-	Settings        model.CompanySettings
-	Users           []application.CompanyUserRecord
-	EquipmentRows   []equipmentListRow
-	Equipment       []model.Equipment
-	EquipmentModel  []model.EquipmentModel
-	Materials       []model.Material
-	GlobalMaterials []model.GlobalMaterial
-	Consumables     []model.Consumable
-	Orders          []application.OrderRecord
-	OrderRows       []orderListRow
-	Projects        []application.ProjectRecord
-	EquipmentForm   equipmentForm
-	MaterialForm    materialForm
-	ConsumableForm  consumableForm
-	OrderForm       orderForm
+	View                string
+	Company             model.Company
+	Settings            model.CompanySettings
+	Users               []application.CompanyUserRecord
+	EquipmentRows       []equipmentListRow
+	Equipment           []model.Equipment
+	EquipmentModel      []model.EquipmentModel
+	Materials           []model.Material
+	GlobalMaterials     []model.GlobalMaterial
+	GlobalMaterial      model.GlobalMaterial
+	GlobalMaterialQuery string
+	Consumables         []model.Consumable
+	Orders              []application.OrderRecord
+	OrderRows           []orderListRow
+	Projects            []application.ProjectRecord
+	EquipmentForm       equipmentForm
+	MaterialForm        materialForm
+	ConsumableForm      consumableForm
+	OrderForm           orderForm
 }
 
 func (s *Server) serveWorkspace(w http.ResponseWriter, r *http.Request) bool {
@@ -159,6 +161,11 @@ func (s *Server) serveWorkspace(w http.ResponseWriter, r *http.Request) bool {
 			return s.workspaceMethodNotAllowed(w, r)
 		}
 		s.renderGlobalMaterials(w, r)
+	case strings.HasPrefix(r.URL.Path, "/catalog/materials/"):
+		if r.Method != http.MethodGet {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.renderGlobalMaterial(w, r, strings.TrimPrefix(r.URL.Path, "/catalog/materials/"))
 	case r.URL.Path == "/orders":
 		if r.Method != http.MethodGet {
 			return s.workspaceMethodNotAllowed(w, r)
@@ -624,8 +631,43 @@ func (s *Server) renderGlobalMaterials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := s.workspaceBase(r, "Общая база материалов", "catalog-materials", "catalog-materials")
+	page.GlobalMaterialQuery = strings.TrimSpace(r.URL.Query().Get("q"))
+	if page.GlobalMaterialQuery != "" {
+		query := strings.ToLower(page.GlobalMaterialQuery)
+		filtered := make([]model.GlobalMaterial, 0, len(items))
+		for _, item := range items {
+			haystack := strings.ToLower(strings.Join([]string{
+				item.Name, item.Grade, string(item.Category), item.Description,
+			}, " "))
+			if strings.Contains(haystack, query) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
 	page.GlobalMaterials = items
 	s.render(w, r, "workspace.html", http.StatusOK, page)
+}
+
+func (s *Server) renderGlobalMaterial(w http.ResponseWriter, r *http.Request, materialID string) {
+	if materialID == "" || strings.Contains(materialID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	items, err := s.lifecycle.ListGlobalMaterials(r.Context())
+	if err != nil {
+		s.workspaceInternalError(w, "load global material details", err)
+		return
+	}
+	for _, item := range items {
+		if item.ID == materialID {
+			page := s.workspaceBase(r, item.Name+" "+item.Grade, "catalog-materials", "catalog-material-detail")
+			page.GlobalMaterial = item
+			s.render(w, r, "workspace.html", http.StatusOK, page)
+			return
+		}
+	}
+	http.NotFound(w, r)
 }
 
 func (s *Server) renderOrders(w http.ResponseWriter, r *http.Request) {

@@ -6,10 +6,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"smetchic/application"
 	"smetchic/equipment"
 	"smetchic/estimator"
+	"smetchic/migrations"
 	"smetchic/model"
 	"smetchic/output"
 	"smetchic/parser"
@@ -32,11 +34,18 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("не удалось открыть PostgreSQL (задайте DATABASE_URL): %w", err)
 		}
+		log.Printf("Database connected")
 		defer func() {
 			if closeErr := db.Close(); closeErr != nil {
 				log.Printf("не удалось закрыть соединение PostgreSQL: %v", closeErr)
 			}
 		}()
+		migrationCtx, migrationCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		_, err = migrations.Apply(migrationCtx, db.DB, log.Writer())
+		migrationCancel()
+		if err != nil {
+			return fmt.Errorf("не удалось применить миграции PostgreSQL: %w", err)
+		}
 		repository := postgres.NewLifecycleRepository(db)
 		service := application.NewService(repository, repository)
 		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), postgres.DefaultPingTimeout())
@@ -52,7 +61,7 @@ func run(args []string) error {
 			return fmt.Errorf("не удалось подготовить Web-интерфейс: %w", err)
 		}
 		address := "127.0.0.1:8080"
-		log.Printf("CNC Estimator доступен по адресу http://localhost:8080")
+		log.Printf("Server started on %s", address)
 		return http.ListenAndServe(address, handler)
 	}
 	if len(args) != 1 {

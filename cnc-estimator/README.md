@@ -16,16 +16,20 @@ $pgUser = "your_postgres_role"
 psql -U $pgUser -h localhost -p 5433 -d postgres -c "CREATE DATABASE cnc_estimator;"
 ```
 
-Apply the initial schema from the repository root:
+Database migrations are embedded in the application and are applied
+automatically by `go run .` before the Web server starts. To apply/check them
+without starting the server:
 
 ```powershell
-psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/001_initial.sql
-psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/002_project_lifecycle.sql
-psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/003_auth.sql
-psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/004_workspace.sql
+go run ./cmd/migrate
 ```
 
-The SQL file is also compatible with `psql` on other operating systems.
+The runner records successful migrations in `schema_migrations`, applies each
+one transactionally, and uses a PostgreSQL advisory lock to coordinate multiple
+application instances. Existing schemas created manually from migrations
+001–004 are detected and recorded without re-running those DDL statements;
+missing migrations are then applied. If the schema is only partially present,
+the runner stops and reports the affected migration instead of risking data.
 
 ## Check the connection
 
@@ -75,7 +79,7 @@ requests or when `APP_ENV=production`.
 
 ## Project lifecycle
 
-After applying both migrations and setting `DATABASE_URL`, run:
+After creating the database and setting `DATABASE_URL`, run:
 
 ```powershell
 go run .
@@ -109,4 +113,7 @@ The initial DDL is in [`migrations/001_initial.sql`](migrations/001_initial.sql)
 project lifecycle constraints are in [`migrations/002_project_lifecycle.sql`](migrations/002_project_lifecycle.sql).
 Authentication is in [`migrations/003_auth.sql`](migrations/003_auth.sql), and
 workspace catalogs, consumables, and orders are in
-[`migrations/004_workspace.sql`](migrations/004_workspace.sql).
+[`migrations/004_workspace.sql`](migrations/004_workspace.sql). Migration
+[`migrations/005_allow_multiple_orders_per_project.sql`](migrations/005_allow_multiple_orders_per_project.sql)
+removes the old one-order-per-project restriction without changing existing
+order data.

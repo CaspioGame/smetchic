@@ -133,10 +133,30 @@
 
       {{if eq .View "catalog-materials"}}
       <section class="card"><p class="muted">Ориентировочная общая база. Она не изменяет цены и материалы вашей компании.</p>
+        <form method="get" action="/catalog/materials">
+          <label for="catalog-query">Поиск по названию, марке и категории</label>
+          <input id="catalog-query" name="q" value="{{.GlobalMaterialQuery}}" placeholder="Например, 6061 или алюминий">
+          <p><button type="submit">Найти</button> <a class="button secondary" href="/catalog/materials">Сбросить</a></p>
+        </form>
         <div class="table-wrap"><table><thead><tr><th>Материал</th><th>Марка</th><th>Категория</th><th>Плотность, кг/м³</th><th>Ориентир/кг</th></tr></thead><tbody>
-          {{range .GlobalMaterials}}<tr><td>{{.Name}}</td><td>{{.Grade}}</td><td>{{.Category}}</td><td>{{printf "%.2f" .Density}}</td><td>{{printf "%.2f" .ReferencePriceKg}} {{.Currency}}</td>
+          {{range .GlobalMaterials}}<tr><td><a href="/catalog/materials/{{.ID}}">{{.Name}}</a></td><td>{{.Grade}}</td><td>{{.Category}}</td><td>{{printf "%.2f" .Density}}</td><td>{{printf "%.2f" .ReferencePriceKg}} {{.Currency}}/кг</td>
           </tr>{{else}}<tr><td colspan="5" class="muted">Общая база материалов пока пуста.</td></tr>{{end}}
         </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "catalog-material-detail"}}
+      <p><a href="/catalog/materials">← Общая база материалов</a></p>
+      <section class="card">
+        <h2>{{.GlobalMaterial.Name}} {{.GlobalMaterial.Grade}}</h2>
+        <p>{{.GlobalMaterial.Description}}</p>
+        <div class="table-wrap"><table><tbody>
+          <tr><th>Категория</th><td>{{.GlobalMaterial.Category}}</td></tr>
+          <tr><th>Плотность</th><td>{{printf "%.2f" .GlobalMaterial.Density}} кг/м³</td></tr>
+          <tr><th>Ориентировочная цена</th><td>{{printf "%.2f" .GlobalMaterial.ReferencePriceKg}} {{.GlobalMaterial.Currency}}/кг</td></tr>
+          <tr><th>Единица цены</th><td>за килограмм</td></tr>
+        </tbody></table></div>
+        <p class="muted">Цена справочная, не является предложением поставщика. Для расчёта компании используйте раздел «Мои материалы».</p>
       </section>
       {{end}}
 

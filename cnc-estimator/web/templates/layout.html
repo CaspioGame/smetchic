@@ -13,6 +13,8 @@
     .nav { display: grid; gap: 5px; }
     .nav a { padding: 11px 12px; border-radius: 7px; color: #d7deeb; text-decoration: none; }
     .nav a:hover, .nav a.active { background: #2b3a57; color: #fff; }
+    .nav-group { display: grid; gap: 5px; margin-top: 12px; }
+    .nav-group > span { padding: 6px 12px 2px; color: #9eabc1; font-size: .78rem; font-weight: 700; text-transform: uppercase; }
     .content { width: min(1200px, 100%); margin: 0 auto; padding: 32px; }
     h1 { margin: 0 0 8px; font-size: 1.8rem; }
     h2 { margin: 0 0 16px; font-size: 1.2rem; }
@@ -48,6 +50,8 @@
       .brand { margin: 0 6px 12px; }
       .nav { display: flex; overflow-x: auto; }
       .nav a { flex: 0 0 auto; padding: 9px 10px; }
+      .nav-group { display: flex; flex: 0 0 auto; margin: 0; }
+      .nav-group > span { display: none; }
       .content { padding: 20px 14px; }
       .card { padding: 16px; }
     }
@@ -61,14 +65,23 @@
   <nav class="nav" aria-label="Основная навигация">
     <a href="/" {{if eq .Active "estimate"}}class="active"{{end}}>Расчёт сметы</a>
     {{if .LifecycleEnabled}}
-    <a href="/projects" {{if eq .Active "projects"}}class="active"{{end}}>Проекты и детали</a>
-    <a href="/orders" {{if eq .Active "orders"}}class="active"{{end}}>Заказы</a>
-    <a href="/equipment" {{if eq .Active "equipment"}}class="active"{{end}}>Моё оборудование</a>
-    <a href="/catalog/equipment" {{if eq .Active "catalog-equipment"}}class="active"{{end}}>Общая база станков</a>
-    <a href="/materials" {{if eq .Active "materials"}}class="active"{{end}}>Мои материалы</a>
-    <a href="/catalog/materials" {{if eq .Active "catalog-materials"}}class="active"{{end}}>Общая база материалов</a>
-    <a href="/consumables" {{if eq .Active "consumables"}}class="active"{{end}}>Расходники</a>
-    <a href="/company" {{if eq .Active "company"}}class="active"{{end}}>Компания</a>
+    <div class="nav-group">
+      <span>Личный кабинет</span>
+      <a href="/company" {{if eq .Active "company"}}class="active"{{end}}>Профиль компании</a>
+      <a href="/projects" {{if eq .Active "projects"}}class="active"{{end}}>Проекты и детали</a>
+      <a href="/orders" {{if eq .Active "orders"}}class="active"{{end}}>Заказы</a>
+    </div>
+    <div class="nav-group">
+      <span>Мои ресурсы</span>
+      <a href="/equipment" {{if eq .Active "equipment"}}class="active"{{end}}>Оборудование</a>
+      <a href="/consumables" {{if eq .Active "consumables"}}class="active"{{end}}>Расходники</a>
+      <a href="/materials" {{if eq .Active "materials"}}class="active"{{end}}>Материалы</a>
+    </div>
+    <div class="nav-group">
+      <span>Общая база</span>
+      <a href="/catalog/equipment" {{if eq .Active "catalog-equipment"}}class="active"{{end}}>Оборудование</a>
+      <a href="/catalog/materials" {{if eq .Active "catalog-materials"}}class="active"{{end}}>Материалы</a>
+    </div>
     {{else}}
     <a href="/equipment" {{if eq .Active "equipment"}}class="active"{{end}}>Оборудование</a>
     <a href="/materials" {{if eq .Active "materials"}}class="active"{{end}}>Материалы</a>
