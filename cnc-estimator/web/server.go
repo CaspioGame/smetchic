@@ -40,7 +40,7 @@ func NewLifecycleCabinetHandler(store *storage.Store, company model.Company, lif
 }
 
 func NewAuthenticatedLifecycleCabinetHandler(
-	store *storage.Store,
+	_ *storage.Store,
 	lifecycle *application.Service,
 	authentication *application.AuthenticationService,
 ) (http.Handler, error) {
@@ -50,7 +50,7 @@ func NewAuthenticatedLifecycleCabinetHandler(
 	if authentication == nil {
 		return nil, fmt.Errorf("authentication service is required")
 	}
-	server, err := newLifecycleServer(store, model.Company{}, lifecycle)
+	server, err := newLifecycleServer(nil, model.Company{}, lifecycle)
 	if err != nil {
 		return nil, err
 	}

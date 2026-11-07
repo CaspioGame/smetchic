@@ -73,6 +73,128 @@ func (repository *webAuthRepository) CreateUserWithMembership(
 	return nil
 }
 
+func (repository *webAuthRepository) RegisterCompanyWithOwner(
+	_ context.Context, company model.Company, _ model.CompanySettings, user model.User, passwordHash string,
+) error {
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	for _, record := range repository.users {
+		if strings.EqualFold(record.User.Email, user.Email) {
+			return application.ErrEmailAlreadyExists
+		}
+	}
+	repository.users[user.ID] = application.AuthUserRecord{
+		User: user, PasswordHash: passwordHash, Active: true,
+	}
+	repository.memberships[user.ID] = []application.AuthMembership{{
+		Company: company, Role: model.CompanyRoleOwner,
+	}}
+	return nil
+}
+
+func TestWebRegistrationCreatesCompanyAndLogsOwnerIn(t *testing.T) {
+	handler, repository := newAuthenticatedTestHandler(t)
+	registrationPage := httptest.NewRecorder()
+	handler.ServeHTTP(registrationPage, httptest.NewRequest(http.MethodGet, "/register", nil))
+	if registrationPage.Code != http.StatusOK ||
+		!strings.Contains(registrationPage.Body.String(), "Минимум 6 символов") {
+		t.Fatalf("GET /register status = %d, body: %s", registrationPage.Code, registrationPage.Body.String())
+	}
+	preAuthSession, preAuthCSRF := authCookies(t, registrationPage)
+	token := csrfFromBody(t, registrationPage.Body.String())
+	form := url.Values{
+		"email": {"new-owner@example.test"}, "name": {"New owner"},
+		"company_name": {"New company"}, "password": {"abcdef"},
+		"password_confirmation": {"abcdef"}, "csrf_token": {token},
+	}
+	response := postAuthForm(handler, "/register", form, preAuthSession, preAuthCSRF)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/projects" {
+		t.Fatalf("POST /register status = %d, location %q, body: %s", response.Code, response.Header().Get("Location"), response.Body.String())
+	}
+	sessionCookie, csrfCookie := authCookies(t, response)
+	var registeredUser application.AuthUserRecord
+	var memberships []application.AuthMembership
+	for userID, record := range repository.users {
+		if record.User.Email == "new-owner@example.test" {
+			registeredUser = record
+			memberships = repository.memberships[userID]
+			break
+		}
+	}
+	if registeredUser.User.ID == "" || registeredUser.PasswordHash == "abcdef" ||
+		!application.VerifyPassword(registeredUser.PasswordHash, "abcdef") {
+		t.Fatal("registered user password was not stored as a hash")
+	}
+	if len(memberships) != 1 || memberships[0].Company.Name != "New company" ||
+		memberships[0].Role != model.CompanyRoleOwner {
+		t.Fatalf("registration membership = %#v", memberships)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/projects", nil)
+	request.AddCookie(sessionCookie)
+	request.AddCookie(csrfCookie)
+	protected := httptest.NewRecorder()
+	handler.ServeHTTP(protected, request)
+	if protected.Code != http.StatusOK || !strings.Contains(protected.Body.String(), "New company") {
+		t.Fatalf("request after registration status = %d, body: %s", protected.Code, protected.Body.String())
+	}
+}
+
+func TestWebRegistrationValidationAndDuplicateEmail(t *testing.T) {
+	handler, repository := newAuthenticatedTestHandler(t)
+	_, _, err := application.NewAuthenticationService(repository).RegisterCompany(
+		context.Background(), "existing@example.test", "Existing", "abcdef", "Existing Co",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/register", nil))
+	session, csrf := authCookies(t, page)
+	token := csrfFromBody(t, page.Body.String())
+	tests := []struct {
+		name string
+		form url.Values
+		want string
+	}{
+		{
+			name: "mismatched passwords",
+			form: url.Values{
+				"email": {"new@example.test"}, "name": {"New"}, "company_name": {"New Co"},
+				"password": {"abcdef"}, "password_confirmation": {"abcdeg"}, "csrf_token": {token},
+			},
+			want: "Пароли не совпадают",
+		},
+		{
+			name: "short password",
+			form: url.Values{
+				"email": {"new@example.test"}, "name": {"New"}, "company_name": {"New Co"},
+				"password": {"abcde"}, "password_confirmation": {"abcde"}, "csrf_token": {token},
+			},
+			want: "минимум 6 символов",
+		},
+		{
+			name: "duplicate email",
+			form: url.Values{
+				"email": {"EXISTING@example.test"}, "name": {"New"}, "company_name": {"New Co"},
+				"password": {"abcdef"}, "password_confirmation": {"abcdef"}, "csrf_token": {token},
+			},
+			want: "уже зарегистрирован",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := postAuthForm(handler, "/register", test.form, session, csrf)
+			if response.Code < http.StatusBadRequest || response.Code >= http.StatusInternalServerError ||
+				!strings.Contains(strings.ToLower(response.Body.String()), strings.ToLower(test.want)) {
+				t.Fatalf("registration status = %d, body: %s", response.Code, response.Body.String())
+			}
+		})
+	}
+	if len(repository.users) != 1 {
+		t.Fatalf("failed registration partially created user/company, user count = %d", len(repository.users))
+	}
+}
+
 func TestLoginSessionLogoutAndProtectedRoutes(t *testing.T) {
 	handler, repository := newAuthenticatedTestHandler(t)
 	user, err := application.NewAuthenticationService(repository).CreateUser(
@@ -254,6 +376,25 @@ func TestExpiredSessionIsRejected(t *testing.T) {
 	store.mu.Unlock()
 	if _, ok := store.get(session.ID); ok {
 		t.Fatal("expired session was accepted")
+	}
+	stale, err := store.create("user-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	expired := store.sessions[stale.ID]
+	expired.ExpiresAt = time.Now().Add(-time.Minute)
+	store.sessions[stale.ID] = expired
+	store.lastCleanup = time.Now().Add(-2 * time.Minute)
+	store.mu.Unlock()
+	if _, err := store.create("user-3"); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	_, remains := store.sessions[stale.ID]
+	store.mu.Unlock()
+	if remains {
+		t.Fatal("expired session was not removed during session-store cleanup")
 	}
 }
 

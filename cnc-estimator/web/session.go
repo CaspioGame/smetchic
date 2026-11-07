@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-const sessionLifetime = 12 * time.Hour
+const (
+	sessionLifetime  = 12 * time.Hour
+	sessionSweepRate = time.Minute
+)
 
 type serverSession struct {
 	ID        string
@@ -19,8 +22,9 @@ type serverSession struct {
 }
 
 type sessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]serverSession
+	mu          sync.Mutex
+	sessions    map[string]serverSession
+	lastCleanup time.Time
 }
 
 func newSessionStore() *sessionStore {
@@ -42,6 +46,14 @@ func (store *sessionStore) create(userID string) (serverSession, error) {
 		CreatedAt: now, ExpiresAt: now.Add(sessionLifetime),
 	}
 	store.mu.Lock()
+	if now.Sub(store.lastCleanup) >= sessionSweepRate {
+		for id, existing := range store.sessions {
+			if !now.Before(existing.ExpiresAt) {
+				delete(store.sessions, id)
+			}
+		}
+		store.lastCleanup = now
+	}
 	store.sessions[session.ID] = session
 	store.mu.Unlock()
 	return session, nil

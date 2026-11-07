@@ -31,6 +31,13 @@ type loginPage struct {
 	pageBase
 }
 
+type registerPage struct {
+	pageBase
+	Email       string
+	DisplayName string
+	CompanyName string
+}
+
 func identityFromRequest(r *http.Request) (requestIdentity, bool) {
 	identity, ok := r.Context().Value(authContextKey{}).(requestIdentity)
 	return identity, ok
@@ -73,6 +80,83 @@ func (s *Server) serveLogin(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, POST")
 		http.Error(w, "Метод не поддерживается.", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) serveRegister(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if session, ok := s.sessionFromRequest(r); ok && session.UserID != "" {
+			http.Redirect(w, r, "/projects", http.StatusSeeOther)
+			return
+		}
+		session, err := s.ensurePreAuthSession(w, r)
+		if err != nil {
+			http.Error(w, "Не удалось подготовить регистрацию. Попробуйте позже.", http.StatusInternalServerError)
+			return
+		}
+		s.render(w, r, "register.html", http.StatusOK, registerPage{
+			pageBase: pageBase{Title: "Регистрация", CSRF: session.CSRFToken},
+		})
+	case http.MethodPost:
+		s.register(w, r)
+	default:
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "Метод не поддерживается.", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) register(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormSize)
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Некорректные данные формы.", http.StatusBadRequest)
+		return
+	}
+	session, ok := s.sessionFromRequest(r)
+	if !ok || session.UserID != "" || !s.validCSRF(r, session) {
+		http.Error(w, "Форма устарела или не прошла проверку безопасности. Обновите страницу.", http.StatusForbidden)
+		return
+	}
+	page := registerPage{
+		pageBase:    pageBase{Title: "Регистрация", CSRF: session.CSRFToken},
+		Email:       strings.TrimSpace(r.FormValue("email")),
+		DisplayName: strings.TrimSpace(r.FormValue("name")),
+		CompanyName: strings.TrimSpace(r.FormValue("company_name")),
+	}
+	password := r.FormValue("password")
+	if password != r.FormValue("password_confirmation") {
+		page.Error = "Пароли не совпадают."
+		s.render(w, r, "register.html", http.StatusBadRequest, page)
+		return
+	}
+	user, _, err := s.authentication.RegisterCompany(
+		r.Context(), page.Email, page.DisplayName, password, page.CompanyName,
+	)
+	if errors.Is(err, application.ErrEmailAlreadyExists) {
+		page.Error = "Этот email уже зарегистрирован."
+		s.render(w, r, "register.html", http.StatusConflict, page)
+		return
+	}
+	if err != nil {
+		var validationError *application.ValidationError
+		if errors.As(err, &validationError) {
+			page.Error = validationError.Message
+			s.render(w, r, "register.html", http.StatusBadRequest, page)
+			return
+		}
+		log.Printf("register company and owner: %v", err)
+		page.Error = "Не удалось создать аккаунт. Проверьте данные и повторите попытку."
+		s.render(w, r, "register.html", http.StatusInternalServerError, page)
+		return
+	}
+	s.sessions.delete(session.ID)
+	authSession, err := s.sessions.create(user.ID)
+	if err != nil {
+		log.Printf("create registration session: %v", err)
+		http.Error(w, "Аккаунт создан, но не удалось выполнить вход. Войдите через форму.", http.StatusInternalServerError)
+		return
+	}
+	s.setSessionCookies(w, r, authSession)
+	http.Redirect(w, r, "/projects", http.StatusSeeOther)
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +355,10 @@ func (s *Server) applyPageSecurity(r *http.Request, data any) any {
 		page.Authenticated = authenticated
 		page.UserName = userName
 		return page
+	case registerPage:
+		page.Authenticated = authenticated
+		page.UserName = userName
+		return page
 	case equipmentListPage:
 		set(&page.pageBase)
 		return page
@@ -292,6 +380,9 @@ func (s *Server) applyPageSecurity(r *http.Request, data any) any {
 	case companyPage:
 		set(&page.pageBase)
 		return page
+	case workspacePage:
+		set(&page.pageBase)
+		return page
 	default:
 		return data
 	}
@@ -302,4 +393,46 @@ func companyIDForRequest(s *Server, r *http.Request) string {
 		return identity.Company.ID
 	}
 	return s.companyID
+}
+
+func (s *Server) rejectUnauthorizedMutation(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	identity, ok := identityFromRequest(r)
+	if !ok {
+		http.Error(w, "Требуется авторизация.", http.StatusUnauthorized)
+		return true
+	}
+	if r.URL.Path == "/company/save" {
+		if identity.Role == model.CompanyRoleOwner || identity.Role == model.CompanyRoleAdmin {
+			return false
+		}
+		http.Error(w, "Недостаточно прав для изменения профиля компании.", http.StatusForbidden)
+		return true
+	}
+	if strings.HasPrefix(r.URL.Path, "/revisions/") && strings.HasSuffix(r.URL.Path, "/calculate") {
+		switch identity.Role {
+		case model.CompanyRoleOwner, model.CompanyRoleAdmin, model.CompanyRoleManager, model.CompanyRoleOperator:
+			return false
+		default:
+			http.Error(w, "Недостаточно прав для расчёта сметы.", http.StatusForbidden)
+			return true
+		}
+	}
+	if strings.HasPrefix(r.URL.Path, "/projects/") ||
+		strings.HasPrefix(r.URL.Path, "/revisions/") ||
+		strings.HasPrefix(r.URL.Path, "/equipment/") ||
+		strings.HasPrefix(r.URL.Path, "/materials/") ||
+		strings.HasPrefix(r.URL.Path, "/consumables/") ||
+		strings.HasPrefix(r.URL.Path, "/orders/") {
+		if identity.Role == model.CompanyRoleOwner ||
+			identity.Role == model.CompanyRoleAdmin ||
+			identity.Role == model.CompanyRoleManager {
+			return false
+		}
+		http.Error(w, "Недостаточно прав для изменения данных компании.", http.StatusForbidden)
+		return true
+	}
+	return false
 }

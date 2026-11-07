@@ -60,11 +60,21 @@
   <a class="brand" href="/">CNC Estimator</a>
   <nav class="nav" aria-label="Основная навигация">
     <a href="/" {{if eq .Active "estimate"}}class="active"{{end}}>Расчёт сметы</a>
-    {{if .LifecycleEnabled}}<a href="/projects" {{if eq .Active "projects"}}class="active"{{end}}>Проекты и детали</a>{{end}}
+    {{if .LifecycleEnabled}}
+    <a href="/projects" {{if eq .Active "projects"}}class="active"{{end}}>Проекты и детали</a>
+    <a href="/orders" {{if eq .Active "orders"}}class="active"{{end}}>Заказы</a>
+    <a href="/equipment" {{if eq .Active "equipment"}}class="active"{{end}}>Моё оборудование</a>
+    <a href="/catalog/equipment" {{if eq .Active "catalog-equipment"}}class="active"{{end}}>Общая база станков</a>
+    <a href="/materials" {{if eq .Active "materials"}}class="active"{{end}}>Мои материалы</a>
+    <a href="/catalog/materials" {{if eq .Active "catalog-materials"}}class="active"{{end}}>Общая база материалов</a>
+    <a href="/consumables" {{if eq .Active "consumables"}}class="active"{{end}}>Расходники</a>
+    <a href="/company" {{if eq .Active "company"}}class="active"{{end}}>Компания</a>
+    {{else}}
     <a href="/equipment" {{if eq .Active "equipment"}}class="active"{{end}}>Оборудование</a>
     <a href="/materials" {{if eq .Active "materials"}}class="active"{{end}}>Материалы</a>
     <a href="/stock-blanks" {{if eq .Active "blanks"}}class="active"{{end}}>Заготовки</a>
     <a href="/company" {{if eq .Active "company"}}class="active"{{end}}>Компания и настройки</a>
+    {{end}}
   </nav>
   {{if .Authenticated}}
   <div class="user-session">

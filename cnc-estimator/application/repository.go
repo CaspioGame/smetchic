@@ -15,6 +15,22 @@ type Repository interface {
 	EnsureEquipment(context.Context, model.Equipment) error
 	GetCompany(context.Context, string) (model.Company, error)
 	GetCompanySettings(context.Context, string) (model.CompanySettings, error)
+	UpdateCompany(context.Context, model.Company, model.CompanySettings) error
+	ListCompanyUsers(context.Context, string) ([]CompanyUserRecord, error)
+	ListEquipmentModels(context.Context) ([]model.EquipmentModel, error)
+	SaveEquipment(context.Context, model.Equipment) error
+	DeleteEquipment(context.Context, string, string) error
+	ListMaterials(context.Context, string) ([]model.Material, error)
+	SaveMaterial(context.Context, model.Material) error
+	DeleteMaterial(context.Context, string, string) error
+	ListGlobalMaterials(context.Context) ([]model.GlobalMaterial, error)
+	ListConsumables(context.Context, string) ([]model.Consumable, error)
+	SaveConsumable(context.Context, model.Consumable) error
+	DeleteConsumable(context.Context, string, string) error
+	ListOrders(context.Context, string) ([]OrderRecord, error)
+	CreateOrder(context.Context, OrderRecord) error
+	UpdateOrder(context.Context, OrderRecord) error
+	GetOrder(context.Context, string, string) (OrderRecord, error)
 	CreateProject(context.Context, ProjectRecord) error
 	UpdateProject(context.Context, ProjectRecord) (ProjectRecord, error)
 	GetProject(context.Context, string, string) (ProjectRecord, error)

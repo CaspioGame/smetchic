@@ -1,0 +1,31 @@
+{{define "register.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body>
+  <main class="content login-content">
+    <section class="card">
+      <h1>Создать аккаунт компании</h1>
+      <p class="muted">Аккаунт будет владельцем новой компании.</p>
+      {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+      <form method="post" action="/register">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <label for="register-email">Email</label>
+        <input id="register-email" name="email" type="email" autocomplete="username" value="{{.Email}}" required maxlength="254">
+        <label for="register-name">Ваше имя</label>
+        <input id="register-name" name="name" autocomplete="name" value="{{.DisplayName}}" required maxlength="200">
+        <label for="register-company">Название компании</label>
+        <input id="register-company" name="company_name" value="{{.CompanyName}}" required maxlength="200">
+        <label for="register-password">Пароль</label>
+        <input id="register-password" name="password" type="password" autocomplete="new-password" required>
+        <small>Минимум 6 символов</small>
+        <label for="register-password-confirmation">Подтвердите пароль</label>
+        <input id="register-password-confirmation" name="password_confirmation" type="password" autocomplete="new-password" required>
+        <button type="submit">Зарегистрироваться</button>
+      </form>
+      <p><a href="/login">Уже есть аккаунт? Войти</a></p>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

@@ -48,7 +48,7 @@ func run() error {
 	}
 	role := model.CompanyRole(roleText)
 
-	password, err := readPassword(reader, "Пароль (не менее 12 байт): ")
+	password, err := readPassword(reader, "Пароль (не менее 6 символов): ")
 	if err != nil {
 		return err
 	}

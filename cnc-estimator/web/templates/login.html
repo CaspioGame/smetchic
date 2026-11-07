@@ -9,7 +9,7 @@
       {{if .Authenticated}}
       <p class="muted">Пользователь: {{.UserName}}</p>
       {{else}}
-      <p class="muted">Войдите под учётной записью, созданной администратором.</p>
+      <p class="muted">Войдите в личный кабинет компании.</p>
       {{end}}
       {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
       {{if .Authenticated}}
@@ -26,6 +26,7 @@
         <input id="password" name="password" type="password" autocomplete="current-password" required>
         <button type="submit">Войти</button>
       </form>
+      <p><a href="/register">Создать аккаунт компании</a></p>
       {{end}}
     </section>
   </main>

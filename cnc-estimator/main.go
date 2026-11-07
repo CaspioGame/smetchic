@@ -13,7 +13,6 @@ import (
 	"smetchic/model"
 	"smetchic/output"
 	"smetchic/parser"
-	"smetchic/storage"
 	"smetchic/storage/postgres"
 	"smetchic/web"
 )
@@ -47,14 +46,8 @@ func run(args []string) error {
 			return fmt.Errorf("не удалось подготовить компанию PostgreSQL: %w", err)
 		}
 
-		var store *storage.Store
-		store, err = storage.NewStore("data")
-		if err != nil {
-			log.Printf("legacy JSON cabinet is unavailable; PostgreSQL lifecycle remains enabled: %v", err)
-			store = nil
-		}
 		authentication := application.NewAuthenticationService(repository)
-		handler, err := web.NewAuthenticatedLifecycleCabinetHandler(store, service, authentication)
+		handler, err := web.NewAuthenticatedLifecycleCabinetHandler(nil, service, authentication)
 		if err != nil {
 			return fmt.Errorf("не удалось подготовить Web-интерфейс: %w", err)
 		}

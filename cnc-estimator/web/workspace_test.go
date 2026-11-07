@@ -1,0 +1,134 @@
+package web
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"smetchic/application"
+	"smetchic/model"
+)
+
+type workspaceTestRepository struct {
+	application.Repository
+	*webAuthRepository
+}
+
+func (repository *workspaceTestRepository) GetCompany(_ context.Context, companyID string) (model.Company, error) {
+	return model.Company{ID: companyID, Name: "Workspace test company"}, nil
+}
+
+func (repository *workspaceTestRepository) GetCompanySettings(_ context.Context, companyID string) (model.CompanySettings, error) {
+	return model.CompanySettings{CompanyID: companyID, Currency: "RUB", DefaultMarkupPercent: 50}, nil
+}
+
+func (repository *workspaceTestRepository) GetEquipment(_ context.Context, companyID, equipmentID string) (model.Equipment, error) {
+	return model.Equipment{}, application.ErrNotFound
+}
+
+func (repository *workspaceTestRepository) ListEquipment(context.Context, string) ([]model.Equipment, error) {
+	return nil, nil
+}
+
+func (repository *workspaceTestRepository) ListCompanyUsers(context.Context, string) ([]application.CompanyUserRecord, error) {
+	return nil, nil
+}
+
+func (repository *workspaceTestRepository) ListEquipmentModels(context.Context) ([]model.EquipmentModel, error) {
+	return nil, nil
+}
+
+func (repository *workspaceTestRepository) ListMaterials(context.Context, string) ([]model.Material, error) {
+	return nil, nil
+}
+
+func (repository *workspaceTestRepository) ListGlobalMaterials(context.Context) ([]model.GlobalMaterial, error) {
+	return nil, nil
+}
+
+func (repository *workspaceTestRepository) ListConsumables(context.Context, string) ([]model.Consumable, error) {
+	return nil, nil
+}
+
+func (repository *workspaceTestRepository) ListOrders(context.Context, string) ([]application.OrderRecord, error) {
+	return nil, nil
+}
+
+func (repository *workspaceTestRepository) ListProjects(context.Context, string) ([]application.ProjectRecord, error) {
+	return nil, nil
+}
+
+func TestAuthenticatedWorkspacePagesRenderWithoutJSONStore(t *testing.T) {
+	repository := &workspaceTestRepository{webAuthRepository: newWebAuthRepository()}
+	user := model.User{ID: "workspace-user", Email: "owner@example.test", Name: "Workspace owner"}
+	repository.users[user.ID] = application.AuthUserRecord{User: user, Active: true}
+	repository.memberships[user.ID] = []application.AuthMembership{{
+		Company: model.Company{ID: "workspace-company", Name: "Workspace test company"},
+		Role:    model.CompanyRoleOwner,
+	}}
+	lifecycle := application.NewService(repository, repository)
+	handler, err := NewAuthenticatedLifecycleCabinetHandler(
+		nil, lifecycle, application.NewAuthenticationService(repository),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := handler.(*Server)
+	session, err := server.sessions.create(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{
+		"/company", "/equipment", "/equipment/new", "/materials", "/materials/new",
+		"/consumables", "/consumables/new", "/catalog/equipment", "/catalog/materials",
+		"/orders", "/orders/new", "/projects",
+	} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID})
+			request.AddCookie(&http.Cookie{Name: csrfCookieName, Value: session.CSRFToken})
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusOK {
+				t.Fatalf("GET %s status = %d, body: %s", path, response.Code, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), "Workspace owner") {
+				t.Fatalf("GET %s did not render the authenticated workspace", path)
+			}
+		})
+	}
+}
+
+func TestWorkspaceRoleRestrictions(t *testing.T) {
+	repository := &workspaceTestRepository{webAuthRepository: newWebAuthRepository()}
+	user := model.User{ID: "workspace-manager", Email: "manager@example.test", Name: "Manager"}
+	repository.users[user.ID] = application.AuthUserRecord{User: user, Active: true}
+	repository.memberships[user.ID] = []application.AuthMembership{{
+		Company: model.Company{ID: "workspace-company", Name: "Workspace test company"},
+		Role:    model.CompanyRoleManager,
+	}}
+	lifecycle := application.NewService(repository, repository)
+	handler, err := NewAuthenticatedLifecycleCabinetHandler(
+		nil, lifecycle, application.NewAuthenticationService(repository),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := handler.(*Server)
+	session, err := server.sessions.create(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/company/save", strings.NewReader(""))
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.ID})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden ||
+		!strings.Contains(response.Body.String(), "Недостаточно прав") {
+		t.Fatalf("manager company update status = %d, body: %s", response.Code, response.Body.String())
+	}
+}

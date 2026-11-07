@@ -1,0 +1,204 @@
+{{define "workspace.html"}}
+<!doctype html>
+<html lang="ru">
+{{template "page-head" .}}
+<body>
+  <div class="app">
+    {{template "sidebar" .}}
+    <main class="content">
+      <h1>{{.Title}}</h1>
+      {{if .Flash}}<div class="notice">{{.Flash}}</div>{{end}}
+      {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
+
+      {{if eq .View "company"}}
+      <section class="card">
+        <h2>Профиль и настройки</h2>
+        <form method="post" action="/company/save">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <label for="company-name">Название компании</label>
+          <input id="company-name" name="name" value="{{.Company.Name}}" maxlength="200" required>
+          <div class="grid">
+            <div><label for="currency">Валюта</label><input id="currency" name="currency" value="{{.Settings.Currency}}" maxlength="3" required></div>
+            <div><label for="markup">Наценка по умолчанию, %</label><input id="markup" name="default_markup_percent" type="number" min="0" step="any" value="{{printf "%g" .Settings.DefaultMarkupPercent}}" required></div>
+          </div>
+          <p><button type="submit">Сохранить</button></p>
+        </form>
+      </section>
+      <section class="card">
+        <h2>Участники компании</h2>
+        <div class="table-wrap"><table><thead><tr><th>Имя</th><th>Email</th><th>Роль</th></tr></thead><tbody>
+          {{range .Users}}<tr><td>{{.User.Name}}</td><td>{{.User.Email}}</td><td>{{.Role}}</td></tr>
+          {{else}}<tr><td colspan="3" class="muted">Участников нет.</td></tr>{{end}}
+        </tbody></table></div>
+        <p class="muted">Список показывает участников текущей компании; управление приглашениями пока не подключено.</p>
+      </section>
+      {{end}}
+
+      {{if eq .View "equipment"}}
+      <section class="card">
+        <p>Станки и их ставки принадлежат только вашей компании.</p>
+        <a class="button" href="/equipment/new">Добавить станок</a>
+        <div class="table-wrap"><table><thead><tr><th>Название</th><th>Модель</th><th>Инвентарный №</th><th>Ставка/час</th><th>Статус</th><th></th></tr></thead><tbody>
+          {{range .EquipmentRows}}<tr>
+            <td>{{.Equipment.Name}}</td>
+            <td>{{.Equipment.EquipmentModel.Manufacturer}} {{.Equipment.EquipmentModel.Model}}</td>
+            <td>{{.Equipment.InventoryNumber}}</td>
+            <td>{{printf "%.2f" .Equipment.MachineRatePerHour}}</td>
+            <td>{{.StatusName}}</td>
+            <td class="actions">
+              <a class="button secondary" href="/equipment/edit?id={{.Equipment.ID}}">Изменить</a>
+              <form class="inline-form" method="post" action="/equipment/delete">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.Equipment.ID}}">
+                <button class="danger" type="submit">Удалить</button>
+              </form>
+            </td>
+          </tr>{{else}}<tr><td colspan="6" class="muted">Оборудование пока не добавлено.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "equipment-form"}}
+      <section class="card">
+        <form method="post" action="/equipment/save">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="id" value="{{.EquipmentForm.ID}}">
+          <label for="equipment-name">Название станка</label><input id="equipment-name" name="name" value="{{.EquipmentForm.Name}}" maxlength="200" required>
+          <label for="equipment-model">Модель из общей базы</label>
+          <select id="equipment-model" name="equipment_model_id" required>
+            <option value="">Выберите модель</option>
+            {{range .EquipmentModel}}<option value="{{.ID}}" {{if eq $.EquipmentForm.EquipmentModelID .ID}}selected{{end}}>{{.Manufacturer}} {{.Model}} ({{.Type}})</option>{{end}}
+          </select>
+          {{if not .EquipmentModel}}<p class="muted">Общая база пока пуста, добавить станок нельзя.</p>{{end}}
+          <div class="grid">
+            <div><label for="inventory-number">Инвентарный номер</label><input id="inventory-number" name="inventory_number" value="{{.EquipmentForm.InventoryNumber}}"></div>
+            <div><label for="serial-number">Серийный номер</label><input id="serial-number" name="serial_number" value="{{.EquipmentForm.SerialNumber}}"></div>
+            <div><label for="machine-rate">Ставка за час</label><input id="machine-rate" name="machine_rate_per_hour" type="number" min="0.01" step="any" value="{{.EquipmentForm.MachineRatePerHour}}" required></div>
+            <div><label for="equipment-status">Статус</label><select id="equipment-status" name="status" required>
+              <option value="active" {{if eq .EquipmentForm.Status "active"}}selected{{end}}>Активен</option>
+              <option value="maintenance" {{if eq .EquipmentForm.Status "maintenance"}}selected{{end}}>На обслуживании</option>
+              <option value="inactive" {{if eq .EquipmentForm.Status "inactive"}}selected{{end}}>Неактивен</option>
+            </select></div>
+          </div>
+          <p><button type="submit">Сохранить станок</button><a class="button secondary" href="/equipment">Отмена</a></p>
+        </form>
+      </section>
+      {{end}}
+
+      {{if eq .View "materials"}}
+      <section class="card">
+        <p>Материалы и цены — справочник вашей компании.</p><a class="button" href="/materials/new">Добавить материал</a>
+        <div class="table-wrap"><table><thead><tr><th>Материал</th><th>Марка</th><th>Категория</th><th>Плотность, кг/м³</th><th>Цена/кг</th><th></th></tr></thead><tbody>
+          {{range .Materials}}<tr>
+            <td>{{.Name}}</td><td>{{.Grade}}</td><td>{{.Category}}</td><td>{{printf "%.2f" .Density}}</td><td>{{printf "%.2f" .PricePerKg}} {{.Currency}}</td>
+            <td class="actions"><a class="button secondary" href="/materials/edit?id={{.ID}}">Изменить</a>
+              <form class="inline-form" method="post" action="/materials/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><button class="danger" type="submit">Удалить</button></form>
+            </td>
+          </tr>{{else}}<tr><td colspan="6" class="muted">Материалы пока не добавлены.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "material-form"}}
+      <section class="card">
+        <form method="post" action="/materials/save">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="id" value="{{.MaterialForm.ID}}">
+          <label for="material-name">Название</label><input id="material-name" name="name" value="{{.MaterialForm.Name}}" required>
+          <label for="material-grade">Марка</label><input id="material-grade" name="grade" value="{{.MaterialForm.Grade}}" required>
+          <label for="material-category">Категория</label><select id="material-category" name="category" required>
+            <option value="aluminum" {{if eq .MaterialForm.Category "aluminum"}}selected{{end}}>Алюминий</option>
+            <option value="steel" {{if eq .MaterialForm.Category "steel"}}selected{{end}}>Сталь</option>
+            <option value="stainless_steel" {{if eq .MaterialForm.Category "stainless_steel"}}selected{{end}}>Нержавеющая сталь</option>
+            <option value="brass" {{if eq .MaterialForm.Category "brass"}}selected{{end}}>Латунь</option>
+            <option value="copper" {{if eq .MaterialForm.Category "copper"}}selected{{end}}>Медь</option>
+            <option value="plastic" {{if eq .MaterialForm.Category "plastic"}}selected{{end}}>Пластик</option>
+            <option value="other" {{if eq .MaterialForm.Category "other"}}selected{{end}}>Другое</option>
+          </select>
+          <div class="grid">
+            <div><label for="density">Плотность, кг/м³</label><input id="density" name="density" type="number" min="0.01" step="any" value="{{.MaterialForm.Density}}" required></div>
+            <div><label for="price">Цена за кг</label><input id="price" name="price_per_kg" type="number" min="0" step="any" value="{{.MaterialForm.PricePerKg}}" required></div>
+            <div><label for="material-currency">Валюта</label><input id="material-currency" name="currency" value="{{.MaterialForm.Currency}}" maxlength="3" required></div>
+          </div>
+          <p><button type="submit">Сохранить материал</button><a class="button secondary" href="/materials">Отмена</a></p>
+        </form>
+      </section>
+      {{end}}
+
+      {{if eq .View "catalog-equipment"}}
+      <section class="card"><p class="muted">Общая справочная база моделей. Записи доступны всем компаниям только для чтения.</p>
+        <div class="table-wrap"><table><thead><tr><th>Производитель и модель</th><th>Тип</th><th>Рабочая зона, мм</th><th>Макс. RPM</th></tr></thead><tbody>
+          {{range .EquipmentModel}}<tr><td>{{.Manufacturer}} {{.Model}}</td><td>{{.Type}}</td><td>{{printf "%.0f × %.0f × %.0f" .WorkAreaX .WorkAreaY .WorkAreaZ}}</td><td>{{printf "%.0f" .MaxRPM}}</td></tr>
+          {{else}}<tr><td colspan="4" class="muted">Общая база оборудования пока пуста.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "catalog-materials"}}
+      <section class="card"><p class="muted">Ориентировочная общая база. Она не изменяет цены и материалы вашей компании.</p>
+        <div class="table-wrap"><table><thead><tr><th>Материал</th><th>Марка</th><th>Категория</th><th>Плотность, кг/м³</th><th>Ориентир/кг</th></tr></thead><tbody>
+          {{range .GlobalMaterials}}<tr><td>{{.Name}}</td><td>{{.Grade}}</td><td>{{.Category}}</td><td>{{printf "%.2f" .Density}}</td><td>{{printf "%.2f" .ReferencePriceKg}} {{.Currency}}</td>
+          </tr>{{else}}<tr><td colspan="5" class="muted">Общая база материалов пока пуста.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "consumables"}}
+      <section class="card"><p>Учёт принадлежит вашей компании. Сейчас поддерживается базовая карточка фрезы.</p><a class="button" href="/consumables/new">Добавить фрезу</a>
+        <div class="table-wrap"><table><thead><tr><th>Фреза</th><th>Диаметр</th><th>Зубья</th><th>Материал/покрытие</th><th>Остаток</th><th>Цена</th><th></th></tr></thead><tbody>
+          {{range .Consumables}}<tr>
+            <td>{{.Name}}<br><span class="muted">{{.Manufacturer}} {{.ToolType}}</span></td><td>{{printf "%.2f" .DiameterMm}} мм</td><td>{{.FluteCount}}</td><td>{{.ToolMaterial}} / {{.Coating}}</td><td>{{.StockQuantity}}</td><td>{{printf "%.2f" .UnitPrice}} {{.Currency}}</td>
+            <td class="actions"><a class="button secondary" href="/consumables/edit?id={{.ID}}">Изменить</a><form class="inline-form" method="post" action="/consumables/delete"><input type="hidden" name="csrf_token" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><button class="danger" type="submit">Удалить</button></form></td>
+          </tr>{{else}}<tr><td colspan="7" class="muted">Расходники пока не добавлены.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "consumable-form"}}
+      <section class="card"><form method="post" action="/consumables/save">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="id" value="{{.ConsumableForm.ID}}">
+        <label for="cutter-name">Название</label><input id="cutter-name" name="name" value="{{.ConsumableForm.Name}}" required>
+        <div class="grid">
+          <div><label for="manufacturer">Производитель</label><input id="manufacturer" name="manufacturer" value="{{.ConsumableForm.Manufacturer}}"></div>
+          <div><label for="tool-type">Тип фрезы</label><input id="tool-type" name="tool_type" value="{{.ConsumableForm.ToolType}}"></div>
+          <div><label for="diameter">Диаметр, мм</label><input id="diameter" name="diameter_mm" type="number" min="0.01" step="any" value="{{.ConsumableForm.DiameterMm}}" required></div>
+          <div><label for="flutes">Количество зубьев</label><input id="flutes" name="flute_count" type="number" min="1" step="1" value="{{.ConsumableForm.FluteCount}}" required></div>
+          <div><label for="tool-material">Материал</label><input id="tool-material" name="tool_material" value="{{.ConsumableForm.ToolMaterial}}"></div>
+          <div><label for="coating">Покрытие</label><input id="coating" name="coating" value="{{.ConsumableForm.Coating}}"></div>
+          <div><label for="length">Длина, мм</label><input id="length" name="length_mm" type="number" min="0.01" step="any" value="{{.ConsumableForm.LengthMm}}" required></div>
+          <div><label for="quantity">Остаток, шт.</label><input id="quantity" name="stock_quantity" type="number" min="0" step="1" value="{{.ConsumableForm.StockQuantity}}" required></div>
+          <div><label for="unit-price">Цена за штуку</label><input id="unit-price" name="unit_price" type="number" min="0" step="any" value="{{.ConsumableForm.UnitPrice}}" required></div>
+          <div><label for="consumable-currency">Валюта</label><input id="consumable-currency" name="currency" value="{{.ConsumableForm.Currency}}" maxlength="3" required></div>
+        </div>
+        <p><button type="submit">Сохранить</button><a class="button secondary" href="/consumables">Отмена</a></p>
+      </form></section>
+      {{end}}
+
+      {{if eq .View "orders"}}
+      <section class="card"><p>Заказы компании; проект можно связать необязательно.</p><a class="button" href="/orders/new">Создать заказ</a>
+        <div class="table-wrap"><table><thead><tr><th>Заказ</th><th>Описание</th><th>Статус</th><th>Создан</th></tr></thead><tbody>
+          {{range .OrderRows}}<tr><td><a href="/orders/{{.Order.ID}}">{{.Order.Name}}</a></td><td>{{.Order.Description}}</td><td>{{.StatusName}}</td><td>{{.Order.CreatedAt.Format "02.01.2006 15:04"}}</td></tr>
+          {{else}}<tr><td colspan="4" class="muted">Заказов пока нет.</td></tr>{{end}}
+        </tbody></table></div>
+      </section>
+      {{end}}
+
+      {{if eq .View "order-form"}}
+      <section class="card"><form method="post" action="{{if .OrderForm.ID}}/orders/save{{else}}/orders/create{{end}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}"><input type="hidden" name="id" value="{{.OrderForm.ID}}">
+        <label for="order-name">Название</label><input id="order-name" name="name" value="{{.OrderForm.Name}}" maxlength="200" required>
+        <label for="order-project">Связанный проект (необязательно)</label><select id="order-project" name="project_id"><option value="">Без проекта</option>
+          {{range .Projects}}<option value="{{.ID}}" {{if eq $.OrderForm.ProjectID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+        <label for="order-description">Описание</label><textarea id="order-description" name="description" rows="4" maxlength="4000">{{.OrderForm.Description}}</textarea>
+        {{if .OrderForm.ID}}<label for="order-status">Статус</label><select id="order-status" name="status">
+          <option value="draft" {{if eq .OrderForm.Status "draft"}}selected{{end}}>Черновик</option>
+          <option value="in_progress" {{if eq .OrderForm.Status "in_progress"}}selected{{end}}>В работе</option>
+          <option value="completed" {{if eq .OrderForm.Status "completed"}}selected{{end}}>Завершён</option>
+          <option value="cancelled" {{if eq .OrderForm.Status "cancelled"}}selected{{end}}>Отменён</option>
+        </select>{{end}}
+        <p><button type="submit">Сохранить заказ</button><a class="button secondary" href="/orders">К списку</a></p>
+      </form></section>
+      {{end}}
+    </main>
+  </div>
+</body>
+</html>
+{{end}}

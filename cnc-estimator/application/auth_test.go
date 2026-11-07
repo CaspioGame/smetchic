@@ -44,6 +44,17 @@ func (repository *authTestRepository) CreateUserWithMembership(
 	return nil
 }
 
+func (repository *authTestRepository) RegisterCompanyWithOwner(
+	_ context.Context, company model.Company, _ model.CompanySettings, user model.User, passwordHash string,
+) error {
+	if repository.record.User.Email == user.Email {
+		return ErrEmailAlreadyExists
+	}
+	repository.record = AuthUserRecord{User: user, PasswordHash: passwordHash, Active: true}
+	repository.memberships = []AuthMembership{{Company: company, Role: model.CompanyRoleOwner}}
+	return nil
+}
+
 func TestPasswordHashVerification(t *testing.T) {
 	hash, err := HashPassword("safe-password-for-test")
 	if err != nil {
@@ -102,5 +113,37 @@ func TestCreateUserStoresOnlyPasswordHash(t *testing.T) {
 	if repository.createdHash == "" || repository.createdHash == "long-password-for-test" ||
 		!VerifyPassword(repository.createdHash, "long-password-for-test") {
 		t.Fatal("created record did not receive a valid one-way password hash")
+	}
+}
+
+func TestPasswordLengthCountsCharacters(t *testing.T) {
+	if _, err := HashPassword("abcdef"); err != nil {
+		t.Fatalf("six ASCII characters should be accepted: %v", err)
+	}
+	if _, err := HashPassword("short"); err == nil || !strings.Contains(err.Error(), "6 символов") {
+		t.Fatalf("short password error = %v", err)
+	}
+}
+
+func TestRegisterCompanyCreatesOwnerAndRejectsDuplicateEmail(t *testing.T) {
+	repository := &authTestRepository{}
+	service := NewAuthenticationService(repository)
+	user, company, err := service.RegisterCompany(
+		context.Background(), " owner@example.test ", "Owner", "пароль", "My company",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if company.Name != "My company" || user.Email != "owner@example.test" ||
+		len(repository.memberships) != 1 || repository.memberships[0].Role != model.CompanyRoleOwner {
+		t.Fatalf("registration state: user=%#v company=%#v memberships=%#v", user, company, repository.memberships)
+	}
+	if repository.record.PasswordHash == "пароль" || !VerifyPassword(repository.record.PasswordHash, "пароль") {
+		t.Fatal("registration stored plaintext instead of a password hash")
+	}
+	if _, _, err := service.RegisterCompany(
+		context.Background(), user.Email, "Second", "another1", "Another company",
+	); !errors.Is(err, ErrEmailAlreadyExists) {
+		t.Fatalf("duplicate email error = %v", err)
 	}
 }

@@ -64,6 +64,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.serveLogin(w, r)
 			return
 		}
+		if r.URL.Path == "/register" {
+			s.serveRegister(w, r)
+			return
+		}
 		if r.URL.Path == "/logout" {
 			s.requireAuth(http.HandlerFunc(s.logout)).ServeHTTP(w, r)
 			return
@@ -75,6 +79,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveProtected(w http.ResponseWriter, r *http.Request) {
+	if s.authentication != nil && s.rejectUnauthorizedMutation(w, r) {
+		return
+	}
+	if s.authentication != nil && s.serveWorkspace(w, r) {
+		return
+	}
 	if s.lifecycle != nil && s.serveLifecycle(w, r) {
 		return
 	}

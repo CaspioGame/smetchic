@@ -179,7 +179,7 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open isolated integration connection: %v", err)
 	}
-	migrations := []string{"001_initial.sql", "002_project_lifecycle.sql", "003_auth.sql"}
+	migrations := []string{"001_initial.sql", "002_project_lifecycle.sql", "003_auth.sql", "004_workspace.sql"}
 	for _, migrationName := range migrations {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", migrationName))
 		if err != nil {
@@ -198,6 +198,31 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 		t.Fatalf("create company and settings: %v", err)
 	}
 	authentication := application.NewAuthenticationService(repository)
+	registeredUser, registeredCompany, err := authentication.RegisterCompany(
+		ctx, "registered@example.test", "Registered owner", "abcdef", "Registered company",
+	)
+	if err != nil {
+		t.Fatalf("register company and owner atomically: %v", err)
+	}
+	registeredRecord, err := repository.GetAuthUserByEmail(ctx, "REGISTERED@example.test")
+	if err != nil || registeredRecord.User.ID != registeredUser.ID ||
+		registeredRecord.PasswordHash == "abcdef" || !registeredRecord.Active {
+		t.Fatalf("registered user = %#v, error = %v", registeredRecord, err)
+	}
+	registeredMemberships, err := repository.ListUserMemberships(ctx, registeredUser.ID)
+	if err != nil || len(registeredMemberships) != 1 ||
+		registeredMemberships[0].Company.ID != registeredCompany.ID ||
+		registeredMemberships[0].Role != model.CompanyRoleOwner {
+		t.Fatalf("registration memberships = %#v, error = %v", registeredMemberships, err)
+	}
+	if _, _, err := authentication.RegisterCompany(
+		ctx, "REGISTERED@example.test", "Duplicate", "abcdef", "Must not persist",
+	); !errors.Is(err, application.ErrEmailAlreadyExists) {
+		t.Fatalf("duplicate registration error = %v", err)
+	}
+	if _, err := service.GetCompany(ctx, registeredCompany.ID); err != nil {
+		t.Fatalf("registration company not persisted: %v", err)
+	}
 	authUser, err := authentication.CreateUser(
 		ctx, "owner@example.test", "Test owner", "integration-password",
 		company.ID, model.CompanyRoleOwner,
@@ -280,6 +305,75 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 		CompanyID: otherCompany.ID, Currency: "RUB",
 	}); err != nil {
 		t.Fatalf("create other company: %v", err)
+	}
+	companyUsers, err := service.ListCompanyUsers(ctx, company.ID)
+	if err != nil || len(companyUsers) != 1 || companyUsers[0].User.ID != authUser.ID {
+		t.Fatalf("company users = %#v, error = %v", companyUsers, err)
+	}
+	if _, err := service.SaveEquipment(ctx, company.ID, model.Equipment{
+		ID: "workspace-integration-equipment", EquipmentModelID: equipmentModel.ID,
+		Name: "Workspace mill", Status: model.EquipmentStatusActive, MachineRatePerHour: 1350,
+	}); err != nil {
+		t.Fatalf("save company equipment: %v", err)
+	}
+	if _, err := repository.GetEquipment(ctx, otherCompany.ID, "workspace-integration-equipment"); !errors.Is(err, application.ErrNotFound) {
+		t.Errorf("cross-company equipment lookup error = %v, want not found", err)
+	}
+	if _, err := service.SaveMaterial(ctx, company.ID, model.Material{
+		ID: "workspace-integration-material", Name: "Aluminum", Grade: "6061",
+		Category: model.MaterialCategoryAluminum, Density: 2700, PricePerKg: 500, Currency: "RUB",
+	}); err != nil {
+		t.Fatalf("save company material: %v", err)
+	}
+	companyMaterials, err := service.ListMaterials(ctx, company.ID)
+	if err != nil || len(companyMaterials) != 1 || companyMaterials[0].ID != "workspace-integration-material" {
+		t.Fatalf("company materials = %#v, error = %v", companyMaterials, err)
+	}
+	otherMaterials, err := service.ListMaterials(ctx, otherCompany.ID)
+	if err != nil || len(otherMaterials) != 0 {
+		t.Fatalf("other company materials = %#v, error = %v", otherMaterials, err)
+	}
+	globalMaterials, err := service.ListGlobalMaterials(ctx)
+	if err != nil || len(globalMaterials) == 0 {
+		t.Fatalf("global materials = %#v, error = %v", globalMaterials, err)
+	}
+	if _, err := service.SaveConsumable(ctx, company.ID, model.Consumable{
+		ID: "workspace-integration-cutter", Category: model.ConsumableCutter,
+		Name: "Carbide end mill", DiameterMm: 10, FluteCount: 4, LengthMm: 60,
+		StockQuantity: 3, UnitPrice: 1200, Currency: "RUB", Attributes: json.RawMessage(`{}`),
+	}); err != nil {
+		t.Fatalf("save company consumable: %v", err)
+	}
+	companyConsumables, err := service.ListConsumables(ctx, company.ID)
+	if err != nil || len(companyConsumables) != 1 || companyConsumables[0].ID != "workspace-integration-cutter" {
+		t.Fatalf("company consumables = %#v, error = %v", companyConsumables, err)
+	}
+	otherConsumables, err := service.ListConsumables(ctx, otherCompany.ID)
+	if err != nil || len(otherConsumables) != 0 {
+		t.Fatalf("other company consumables = %#v, error = %v", otherConsumables, err)
+	}
+	firstOrder, err := service.CreateOrder(ctx, company.ID, authUser.ID, project.ID, "First order", "First")
+	if err != nil {
+		t.Fatalf("create company order: %v", err)
+	}
+	secondOrder, err := service.CreateOrder(ctx, company.ID, authUser.ID, project.ID, "Second order", "Second")
+	if err != nil {
+		t.Fatalf("create another order for the same project: %v", err)
+	}
+	firstOrder.Status = application.OrderStatusInProgress
+	updatedOrder, err := service.UpdateOrder(ctx, firstOrder)
+	if err != nil || updatedOrder.Status != application.OrderStatusInProgress {
+		t.Fatalf("update company order = %#v, error = %v", updatedOrder, err)
+	}
+	companyOrders, err := service.ListOrders(ctx, company.ID)
+	if err != nil || len(companyOrders) != 2 {
+		t.Fatalf("company orders = %#v, error = %v", companyOrders, err)
+	}
+	if _, err := service.GetOrder(ctx, otherCompany.ID, firstOrder.ID); !errors.Is(err, application.ErrNotFound) {
+		t.Errorf("cross-company order lookup error = %v, want not found", err)
+	}
+	if firstOrder.ID == secondOrder.ID {
+		t.Fatal("two orders unexpectedly received the same ID")
 	}
 	if _, err := service.GetProject(ctx, otherCompany.ID, project.ID); !errors.Is(err, application.ErrNotFound) {
 		t.Errorf("cross-company project lookup error = %v, want not found", err)

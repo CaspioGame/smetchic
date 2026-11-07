@@ -1,10 +1,11 @@
 # CNC Estimator
 
-PostgreSQL is the source of truth for the Web application's project lifecycle,
-company context/settings, and equipment used for lifecycle estimates. The
-existing equipment/material/stock-blank cabinet remains a legacy JSON feature;
-its records are not automatically imported into PostgreSQL. The CLI continues
-to use the existing Go calculation core and demo catalog.
+PostgreSQL is the source of truth for the authenticated Web application,
+company workspace, orders, and project lifecycle. The legacy JSON cabinet code
+remains in the repository for compatibility but is not mounted by the main
+application and is not used for new records. Existing JSON data is not
+automatically imported. The CLI continues to use the existing Go calculation
+core and demo catalog.
 
 ## Local PostgreSQL setup
 
@@ -21,6 +22,7 @@ Apply the initial schema from the repository root:
 psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/001_initial.sql
 psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/002_project_lifecycle.sql
 psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/003_auth.sql
+psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -v ON_ERROR_STOP=1 -f migrations/004_workspace.sql
 ```
 
 The SQL file is also compatible with `psql` on other operating systems.
@@ -39,32 +41,35 @@ The check prints a success message if the server responds to `Ping`, and exits
 with a non-zero status if the URL is missing or the database cannot be reached.
 Starting the Web app requires `DATABASE_URL`. It idempotently seeds a default
 demo company, settings, and DeKart S4040 into PostgreSQL only when their IDs
-are absent; existing PostgreSQL records are not overwritten. **Проекты и
-детали** reads and writes company, project, revision, estimate, version,
-settings, and equipment data through PostgreSQL. The legacy JSON cabinet stays
-available in its existing sections, but is no longer the lifecycle's source
-for company or estimate data. No JSON records are imported automatically.
+are absent; existing PostgreSQL records are not overwritten. The authenticated
+workspace reads and writes company profile/settings, company equipment and
+materials, consumables, orders, and project lifecycle data through PostgreSQL.
+Global equipment/material catalogs are read-only. No JSON records are imported
+automatically.
 `go test ./...` runs isolated PostgreSQL lifecycle integration tests when
 `DATABASE_URL` is set.
 
-## User login
+## Registration and login
 
-The Web application uses PostgreSQL users and company memberships. Passwords
-are stored as bcrypt hashes. There is no public registration or seeded
-password. After starting the application once (which creates the demo company),
-create an owner interactively:
+The Web application uses PostgreSQL users and company memberships. A user can
+register at `/register`; registration atomically creates a company, its default
+settings, a user account, and an `owner` membership. Passwords must contain at
+least six characters and are stored as bcrypt hashes. The login page is at
+`http://localhost:8080/login`.
+
+For local administration, create a user for an existing company interactively:
 
 ```powershell
 go run ./cmd/createuser
 ```
 
-Enter the company ID `demo-company`, an email and name, then choose one of the
-existing roles (`owner`, `admin`, `manager`, or `operator`). The password is
-read without terminal echo and is never accepted as a command-line argument.
-The Web login is at `http://localhost:8080/login`. Sessions are held server
-side, last 12 hours, and are invalidated when the application stops. A user
-with multiple company memberships is explicitly blocked until company
-selection is implemented; the application does not choose a tenant arbitrarily.
+Enter the company ID, email and name, then choose one of the existing roles
+(`owner`, `admin`, `manager`, or `operator`). The password is read without
+terminal echo and is never accepted as a command-line argument. Sessions are
+held server side, last 12 hours, and are invalidated when the application
+stops. A user with multiple company memberships is explicitly blocked until
+company selection is implemented; the application does not choose a tenant
+arbitrarily.
 The session cookie is HttpOnly and SameSite=Lax; Secure is enabled for HTTPS
 requests or when `APP_ENV=production`.
 
@@ -102,3 +107,6 @@ psql -U $pgUser -h localhost -p 5433 -d cnc_estimator -c "\d+ estimate_versions"
 
 The initial DDL is in [`migrations/001_initial.sql`](migrations/001_initial.sql);
 project lifecycle constraints are in [`migrations/002_project_lifecycle.sql`](migrations/002_project_lifecycle.sql).
+Authentication is in [`migrations/003_auth.sql`](migrations/003_auth.sql), and
+workspace catalogs, consumables, and orders are in
+[`migrations/004_workspace.sql`](migrations/004_workspace.sql).
