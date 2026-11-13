@@ -13,14 +13,19 @@ import (
 )
 
 type ProductionEstimateOptions struct {
-	Quantity         int
-	SetupTimeMinutes float64
-	ProgrammingHours float64
-	MaterialID       string
-	GlobalMaterialID string
-	StockBlankID     string
-	ConsumableID     string
-	ToolUsageMinutes float64
+	EstimateID           string
+	DocumentInput        EstimateInput
+	EstimateWorkingInput json.RawMessage
+	OrderID              string
+	Quantity             int
+	SetupTimeMinutes     float64
+	ProgrammingHours     float64
+	MaterialID           string
+	GlobalMaterialID     string
+	StockBlankID         string
+	ConsumableID         string
+	ToolUsageMinutes     float64
+	MachineTimeOverride  *EstimateOverride
 }
 
 type EconomicsRepository interface {
@@ -244,6 +249,31 @@ func (service *Service) CalculateWithProductionEconomics(
 			return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Проверьте параметры производственного расчёта.", fmt.Errorf("%s must be non-negative", name))
 		}
 	}
+	if options.DocumentInput.Name == "" {
+		options.DocumentInput = EstimateInput{
+			Name: estimateName, PartRevisionID: revisionID, Quantity: options.Quantity,
+			EquipmentID: equipmentID, MaterialID: options.MaterialID,
+			GlobalMaterialID: options.GlobalMaterialID, StockBlankID: options.StockBlankID,
+			ConsumableID: options.ConsumableID, ToolUsageMinutes: options.ToolUsageMinutes,
+			SetupTimeMinutes: options.SetupTimeMinutes, ProgrammingHours: options.ProgrammingHours,
+			MarkupPercent: markup, MarkupSource: EstimateSourceCompanyData,
+			MarkupReason: "",
+		}
+		if options.MachineTimeOverride != nil {
+			override := *options.MachineTimeOverride
+			options.DocumentInput.MachineTime = &override
+		}
+	}
+	if options.DocumentInput.MarkupSource == "" {
+		options.DocumentInput.MarkupSource = EstimateSourceCompanyData
+	}
+	if len(options.EstimateWorkingInput) == 0 {
+		workingInput, marshalErr := json.Marshal(options.DocumentInput)
+		if marshalErr != nil {
+			return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("serialize estimate working input: %w", marshalErr)
+		}
+		options.EstimateWorkingInput = workingInput
+	}
 	detail, err := service.repository.GetRevisionEstimate(ctx, companyID, revisionID)
 	if err != nil {
 		return EstimateRecord{}, EstimateVersionRecord{}, err
@@ -266,11 +296,38 @@ func (service *Service) CalculateWithProductionEconomics(
 		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("настройки компании не соответствуют текущей компании")
 	}
 
-	result, err := estimator.Calculate(detail.Revision.ParsedPart, equipment, model.EstimateSettings{
-		EquipmentID: equipment.ID, MarkupPercent: markup,
-	})
+	result := model.Estimate{
+		Part: detail.Revision.ParsedPart, Equipment: equipment,
+		Settings: model.EstimateSettings{EquipmentID: equipment.ID, MarkupPercent: markup},
+	}
+	var automaticMachineTimeMinutes, usedMachineTimeMinutes float64
+	machineTimeSource := EstimateSourceAutomatic
+	machineTimeReason := ""
+	if options.MachineTimeOverride == nil {
+		if detail.Revision.ParserVersion == attachmentVersion {
+			return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Введите время обработки одной детали.", nil)
+		}
+		result, err = estimator.Calculate(detail.Revision.ParsedPart, equipment, result.Settings)
+		if err != nil {
+			return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("расчёт не выполнен: %w", err)
+		}
+		automaticMachineTimeMinutes = result.TotalMachineTime
+		usedMachineTimeMinutes = automaticMachineTimeMinutes
+	} else {
+		override := options.MachineTimeOverride
+		if override.Value < 0 || math.IsNaN(override.Value) || math.IsInf(override.Value, 0) {
+			return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Машинное время должно быть конечным и неотрицательным.", nil)
+		}
+		if override.Source != EstimateSourceUserOverride && override.Source != EstimateSourceAIOverride {
+			return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Укажите источник времени обработки.", nil)
+		}
+		usedMachineTimeMinutes = override.Value * 60
+		machineTimeSource = override.Source
+		machineTimeReason = strings.TrimSpace(override.Reason)
+	}
+	options.EstimateWorkingInput, err = json.Marshal(options.DocumentInput)
 	if err != nil {
-		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("расчёт не выполнен: %w", err)
+		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("serialize normalized estimate input: %w", err)
 	}
 	companyEconomics := model.CompanyEconomics{
 		CompanyID: companyID, DefaultMarkupPercent: settings.DefaultMarkupPercent,
@@ -329,6 +386,18 @@ func (service *Service) CalculateWithProductionEconomics(
 		return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Выберите только один источник стоимости материала.", nil)
 	}
 	materialCost, materialSource := 0.0, "not_selected"
+	stock := detail.Revision.ParsedPart.Stock
+	materialWeight := options.DocumentInput.MaterialWeightKg
+	materialCostByWeight := func(density, price float64) (float64, error) {
+		weight := materialWeight
+		if weight == 0 && stock.Width > 0 && stock.Length > 0 && stock.Height > 0 {
+			weight = stock.Width * stock.Length * stock.Height * density / 1_000_000_000
+		}
+		if weight <= 0 || math.IsNaN(weight) || math.IsInf(weight, 0) {
+			return 0, Invalid("Укажите массу заготовки на одну деталь в килограммах.", nil)
+		}
+		return weight * price, nil
+	}
 	var materialSnapshot *model.Material
 	var globalMaterialSnapshot *model.GlobalMaterial
 	var stockBlankSnapshot *model.StockBlank
@@ -388,12 +457,10 @@ func (service *Service) CalculateWithProductionEconomics(
 			if material.Currency != settings.Currency {
 				return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("selected material uses a different currency")
 			}
-			stock := detail.Revision.ParsedPart.Stock
-			if stock.Width <= 0 || stock.Length <= 0 || stock.Height <= 0 {
-				return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Для расчёта материала в файле детали нужны размеры заготовки.", nil)
+			materialCost, err = materialCostByWeight(material.Density, material.PricePerKg)
+			if err != nil {
+				return EstimateRecord{}, EstimateVersionRecord{}, err
 			}
-			materialCost = stock.Width * stock.Length * stock.Height *
-				material.Density / 1_000_000_000 * material.PricePerKg
 			materialSource = "company_material_price_per_kg"
 			materialSnapshot = &material
 			break
@@ -414,12 +481,10 @@ func (service *Service) CalculateWithProductionEconomics(
 			if material.Currency != settings.Currency {
 				return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("selected reference material uses a different currency")
 			}
-			stock := detail.Revision.ParsedPart.Stock
-			if stock.Width <= 0 || stock.Length <= 0 || stock.Height <= 0 {
-				return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Для расчёта материала в файле детали нужны размеры заготовки.", nil)
+			materialCost, err = materialCostByWeight(material.Density, material.ReferencePriceKg)
+			if err != nil {
+				return EstimateRecord{}, EstimateVersionRecord{}, err
 			}
-			materialCost = stock.Width * stock.Length * stock.Height *
-				material.Density / 1_000_000_000 * material.ReferencePriceKg
 			materialSource = "global_reference_price"
 			globalMaterialSnapshot = &material
 			break
@@ -431,13 +496,24 @@ func (service *Service) CalculateWithProductionEconomics(
 
 	tools := make([]costing.ToolUse, 0, 1)
 	var consumableSnapshot *model.Consumable
-	if strings.TrimSpace(options.ConsumableID) != "" {
-		items, err := service.repository.ListConsumables(ctx, companyID)
+	toolID := strings.TrimSpace(options.ConsumableID)
+	globalToolID := strings.TrimSpace(options.DocumentInput.GlobalToolID)
+	if toolID != "" && globalToolID != "" {
+		return EstimateRecord{}, EstimateVersionRecord{}, Invalid("Выберите инструмент только из одного источника.", nil)
+	}
+	if toolID != "" || globalToolID != "" {
+		var items []model.Consumable
+		if globalToolID != "" {
+			toolID = globalToolID
+			items, err = service.ListGlobalTools(ctx)
+		} else {
+			items, err = service.repository.ListConsumables(ctx, companyID)
+		}
 		if err != nil {
 			return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("load company tooling: %w", err)
 		}
 		for index := range items {
-			if items[index].ID != options.ConsumableID {
+			if items[index].ID != toolID {
 				continue
 			}
 			item := items[index]
@@ -460,37 +536,63 @@ func (service *Service) CalculateWithProductionEconomics(
 	calculationEconomics.DefaultMarkupPercent = markup
 	breakdown, err := costing.Calculate(costing.Input{
 		Quantity: options.Quantity, Currency: settings.Currency,
-		MachineTimeMinutes:       result.TotalMachineTime,
+		MachineTimeMinutes:       usedMachineTimeMinutes,
 		LegacyMachineRatePerHour: equipment.MachineRatePerHour,
 		EquipmentEconomics:       equipmentEconomics, OperatorRate: operatorRate,
 		ProgrammingRate: programmingRate, ProgrammingHours: options.ProgrammingHours,
 		SetupTimeMinutes: options.SetupTimeMinutes, SetupCostPerHour: setupRate,
+		ProjectLabor:         options.DocumentInput.ProjectLabor,
+		ExcludeOperator:      options.DocumentInput.Modules != nil && !options.DocumentInput.Modules.Has(ModuleOperator),
 		MaterialCostPerPiece: materialCost, MaterialPriceSource: materialSource,
 		Tools: tools, CompanyEconomics: calculationEconomics, Overheads: overheads,
 	})
 	if err != nil {
 		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("calculate production cost: %w", err)
 	}
-	if materialSource == "not_selected" {
+	if machineTimeSource != EstimateSourceAutomatic {
+		breakdown.Warnings = append(breakdown.Warnings,
+			fmt.Sprintf("Machine time manually overridden: %s", machineTimeReason))
+	}
+	modules := options.DocumentInput.Modules
+	if materialSource == "not_selected" && (modules == nil || modules.Has(ModuleStockBlank) || modules.Has(ModuleStockMaterial) || modules.Has(ModuleCatalogMaterial)) {
 		breakdown.Warnings = append(breakdown.Warnings, "Material price is not selected; material cost is excluded.")
 	}
 	if materialSource == "global_reference_price" {
 		breakdown.Warnings = append(breakdown.Warnings, "Global material price is a reference estimate, not a supplier quotation.")
 	}
-	if consumableSnapshot == nil {
+	if consumableSnapshot == nil && (modules == nil || modules.Has(ModuleStockTool) || modules.Has(ModuleCatalogTool)) {
 		breakdown.Warnings = append(breakdown.Warnings, "Tooling is not selected; tooling cost is excluded.")
+	} else if consumableSnapshot != nil && globalToolID != "" && consumableSnapshot.ResourceMinutes == 0 && options.ToolUsageMinutes == 0 {
+		breakdown.Warnings = append(breakdown.Warnings,
+			fmt.Sprintf("Tool %q resource is not configured; tooling cost is excluded.", consumableSnapshot.Name))
+	}
+	if consumableSnapshot != nil && options.ToolUsageMinutes > 0 {
+		breakdown.ToolSupply = planToolSupply(*consumableSnapshot, options.ToolUsageMinutes*float64(options.Quantity), globalToolID == "")
 	}
 	result.CostBreakdown = &breakdown
+	result.TotalMachineTime = usedMachineTimeMinutes
 	result.MachineCost = breakdown.MachineCost
 	result.TotalCost = breakdown.TotalCost
 	result.SuggestedPrice = breakdown.SellingPrice
 
 	inputSnapshot, err := json.Marshal(struct {
-		Project  ProjectRecord
-		Part     PartRecord
-		Revision PartRevisionRecord
-		Options  ProductionEstimateOptions
-	}{detail.Project, detail.Part, detail.Revision, options})
+		Project                   ProjectRecord
+		Part                      PartRecord
+		Revision                  PartRevisionRecord
+		WorkingInput              EstimateInput
+		Options                   ProductionEstimateOptions
+		AutomaticMachineTimeHours float64
+		UsedMachineTimeHours      float64
+		MachineTimeSource         EstimateValueSource
+		MachineTimeReason         string
+		MarkupSource              EstimateValueSource
+		MarkupReason              string
+	}{
+		detail.Project, detail.Part, detail.Revision, options.DocumentInput, options,
+		automaticMachineTimeMinutes / 60, usedMachineTimeMinutes / 60,
+		machineTimeSource, machineTimeReason,
+		options.DocumentInput.MarkupSource, options.DocumentInput.MarkupReason,
+	})
 	if err != nil {
 		return EstimateRecord{}, EstimateVersionRecord{}, fmt.Errorf("serialize estimate input: %w", err)
 	}
@@ -528,13 +630,19 @@ func (service *Service) CalculateWithProductionEconomics(
 		return EstimateRecord{}, EstimateVersionRecord{}, err
 	}
 	estimate := EstimateRecord{
-		ID: estimateID, CompanyID: companyID, PartRevisionID: revisionID, Name: estimateName,
+		ID: options.EstimateID, CompanyID: companyID, PartID: detail.Part.ID,
+		ProjectID: detail.Project.ID, OrderID: options.OrderID,
+		PartRevisionID: revisionID, Name: estimateName, Quantity: options.Quantity,
+		Status: EstimateStatusDraft, WorkingInput: options.EstimateWorkingInput,
+	}
+	if estimate.ID == "" {
+		estimate.ID = estimateID
 	}
 	version := EstimateVersionRecord{
 		ID: versionID, CompanyID: companyID, PartRevisionID: revisionID,
 		EquipmentID: equipment.ID, EquipmentModelID: equipment.EquipmentModelID,
 		InputSnapshot: inputSnapshot, SettingsSnapshot: settingsSnapshot, ResultSnapshot: resultSnapshot,
-		MachineTimeHours: result.TotalMachineTime * float64(options.Quantity) / 60,
+		MachineTimeHours: usedMachineTimeMinutes * float64(options.Quantity) / 60,
 		HourlyRate:       equipment.MachineRatePerHour,
 		MachineCost:      breakdown.MachineCost,
 		MarkupPercent:    markup,
@@ -542,6 +650,23 @@ func (service *Service) CalculateWithProductionEconomics(
 		Currency:         settings.Currency,
 	}
 	return service.repository.CreateEstimateVersion(ctx, estimate, version)
+}
+
+func planToolSupply(tool model.Consumable, requiredMinutes float64, companyStock bool) *model.ToolSupply {
+	plan := &model.ToolSupply{RequiredMinutes: requiredMinutes}
+	if !companyStock || tool.ResourceMinutes <= 0 ||
+		(tool.StockQuantity > 0 && len(tool.UsedMinutesByUnit) != tool.StockQuantity) {
+		return plan
+	}
+	plan.StockKnown = true
+	for _, used := range tool.UsedMinutesByUnit {
+		plan.AvailableMinutes += math.Max(0, tool.ResourceMinutes-used)
+	}
+	shortfall := (requiredMinutes - plan.AvailableMinutes) / tool.ResourceMinutes
+	// Ignore floating-point noise at whole-tool boundaries.
+	plan.PurchaseQuantity = math.Max(0, math.Ceil(shortfall-1e-9))
+	plan.PurchaseCost = plan.PurchaseQuantity * tool.UnitPrice
+	return plan
 }
 
 func (service *Service) updateCompanyEconomics(ctx context.Context, item model.CompanyEconomics) error {

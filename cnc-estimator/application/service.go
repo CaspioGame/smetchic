@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -15,6 +16,15 @@ import (
 )
 
 const ParserVersion = "part-parser-v1"
+
+const attachmentVersion = "attachment-base64-v1"
+
+func (revision PartRevisionRecord) SourceBytes() ([]byte, error) {
+	if revision.ParserVersion == attachmentVersion {
+		return base64.StdEncoding.DecodeString(revision.SourceContent)
+	}
+	return []byte(revision.SourceContent), nil
+}
 
 type Service struct {
 	repository Repository
@@ -128,16 +138,24 @@ func (service *Service) GetPart(ctx context.Context, companyID, partID string) (
 }
 
 func (service *Service) UploadRevision(ctx context.Context, companyID, projectID string, upload RevisionUpload) (PartRecord, PartRevisionRecord, error) {
+	return service.uploadRevision(ctx, companyID, projectID, upload, true)
+}
+
+func (service *Service) AttachRevision(ctx context.Context, companyID, projectID string, upload RevisionUpload) (PartRecord, PartRevisionRecord, error) {
+	return service.uploadRevision(ctx, companyID, projectID, upload, false)
+}
+
+func (service *Service) uploadRevision(ctx context.Context, companyID, projectID string, upload RevisionUpload, parsePart bool) (PartRecord, PartRevisionRecord, error) {
 	project, err := service.repository.GetProject(ctx, companyID, projectID)
 	if err != nil {
 		return PartRecord{}, PartRevisionRecord{}, err
 	}
 	filename := filepath.Base(strings.TrimSpace(upload.SourceFilename))
-	if filename == "" || filename == "." || !strings.EqualFold(filepath.Ext(filename), ".part") {
-		return PartRecord{}, PartRevisionRecord{}, Invalid("Требуется корректный файл с расширением .part.", nil)
+	if filename == "" || filename == "." || filename == ".." || (parsePart && !strings.EqualFold(filepath.Ext(filename), ".part")) {
+		return PartRecord{}, PartRevisionRecord{}, Invalid("Выберите файл с корректным именем.", nil)
 	}
 	if len(upload.SourceContent) == 0 {
-		return PartRecord{}, PartRevisionRecord{}, Invalid("Файл .part пуст.", nil)
+		return PartRecord{}, PartRevisionRecord{}, Invalid("Файл пуст.", nil)
 	}
 	partName := strings.TrimSpace(upload.PartName)
 	if partName == "" {
@@ -145,10 +163,6 @@ func (service *Service) UploadRevision(ctx context.Context, companyID, projectID
 	}
 	if partName == "" {
 		return PartRecord{}, PartRevisionRecord{}, Invalid("Название детали обязательно.", nil)
-	}
-	parsed, err := parser.Parse(strings.NewReader(string(upload.SourceContent)), filename)
-	if err != nil {
-		return PartRecord{}, PartRevisionRecord{}, Invalid("Не удалось разобрать файл .part", err)
 	}
 	partID, err := newID("part")
 	if err != nil {
@@ -165,10 +179,17 @@ func (service *Service) UploadRevision(ctx context.Context, companyID, projectID
 	}
 	revision := PartRevisionRecord{
 		ID: revisionID, CompanyID: companyID, PartID: partID,
-		SourceFormat: "part", SourceFilename: filename,
-		SourceContent: string(upload.SourceContent),
-		SourceHash:    hex.EncodeToString(hash[:]), ParserVersion: ParserVersion,
-		ParsedPart: parsed,
+		SourceFormat: "attachment", SourceFilename: filename,
+		SourceContent: base64.StdEncoding.EncodeToString(upload.SourceContent),
+		SourceHash:    hex.EncodeToString(hash[:]), ParserVersion: attachmentVersion,
+	}
+	if parsePart {
+		revision.ParsedPart, err = parser.Parse(strings.NewReader(string(upload.SourceContent)), filename)
+		if err != nil {
+			return PartRecord{}, PartRevisionRecord{}, Invalid("Не удалось разобрать файл .part", err)
+		}
+		revision.SourceFormat, revision.ParserVersion = "part", ParserVersion
+		revision.SourceContent = string(upload.SourceContent)
 	}
 	return service.repository.CreatePartWithRevision(ctx, part, revision)
 }

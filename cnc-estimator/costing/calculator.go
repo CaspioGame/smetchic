@@ -25,6 +25,8 @@ type Input struct {
 	ProgrammingHours         float64
 	SetupTimeMinutes         float64
 	SetupCostPerHour         float64
+	ProjectLabor             *model.ProjectLabor
+	ExcludeOperator          bool
 	MaterialCostPerPiece     float64
 	MaterialPriceSource      string
 	Tools                    []ToolUse
@@ -33,6 +35,13 @@ type Input struct {
 }
 
 func Calculate(input Input) (model.ProductionCostBreakdown, error) {
+	var fixed model.ProjectLabor
+	if input.ProjectLabor != nil {
+		fixed = *input.ProjectLabor
+		if err := fixed.Validate(); err != nil {
+			return model.ProductionCostBreakdown{}, err
+		}
+	}
 	if input.Quantity <= 0 {
 		return model.ProductionCostBreakdown{}, fmt.Errorf("quantity must be greater than zero")
 	}
@@ -93,17 +102,33 @@ func Calculate(input Input) (model.ProductionCostBreakdown, error) {
 	}
 
 	result.MaterialCost = input.MaterialCostPerPiece * units
-	result.OperatorCost = hourlyCost(input.OperatorRate) * input.MachineTimeMinutes / 60 * units
-	if input.OperatorRate == nil {
-		result.Warnings = append(result.Warnings, "Operator rate is not configured; operator cost is excluded.")
+	var hourlyOperatorCost float64
+	if input.ExcludeOperator {
+		result.OperatorCost = 0
+	} else if fixed.Operator != nil {
+		result.OperatorCost = *fixed.Operator
+	} else {
+		hourlyOperatorCost = hourlyCost(input.OperatorRate) * machineHours * units
+		result.OperatorCost = hourlyOperatorCost
+		if input.OperatorRate == nil {
+			result.Warnings = append(result.Warnings, "Operator rate is not configured; operator cost is excluded.")
+		}
 	}
-	result.ProgrammingCost = hourlyCost(input.ProgrammingRate) * input.ProgrammingHours
-	if input.ProgrammingHours > 0 && input.ProgrammingRate == nil {
-		result.Warnings = append(result.Warnings, "Programming rate is not configured; programming cost is excluded.")
+	if fixed.Programming != nil {
+		result.ProgrammingCost = *fixed.Programming
+	} else {
+		result.ProgrammingCost = hourlyCost(input.ProgrammingRate) * input.ProgrammingHours
+		if input.ProgrammingHours > 0 && input.ProgrammingRate == nil {
+			result.Warnings = append(result.Warnings, "Programming rate is not configured; programming cost is excluded.")
+		}
 	}
-	result.SetupCost = input.SetupCostPerHour * input.SetupTimeMinutes / 60
-	if input.SetupTimeMinutes > 0 && input.SetupCostPerHour == 0 {
-		result.Warnings = append(result.Warnings, "Setup cost rate is not configured; setup cost is excluded.")
+	if fixed.Setup != nil {
+		result.SetupCost = *fixed.Setup
+	} else {
+		result.SetupCost = input.SetupCostPerHour * input.SetupTimeMinutes / 60
+		if input.SetupTimeMinutes > 0 && input.SetupCostPerHour == 0 {
+			result.Warnings = append(result.Warnings, "Setup cost rate is not configured; setup cost is excluded.")
+		}
 	}
 
 	for _, tool := range input.Tools {
@@ -157,13 +182,18 @@ func Calculate(input Input) (model.ProductionCostBreakdown, error) {
 	}
 
 	result.BatchCost = result.ProgrammingCost + result.SetupCost
-	result.PerPieceCost = (result.MaterialCost + result.MachineCost + result.OperatorCost +
+	if !input.ExcludeOperator && fixed.Operator != nil {
+		result.BatchCost += *fixed.Operator
+	}
+	result.PerPieceCost = (result.MaterialCost + result.MachineCost + hourlyOperatorCost +
 		result.ToolingCost + result.RentCost + result.UtilitiesCost + result.OtherOverheadCost) / units
 	result.TotalCost = result.BatchCost + result.PerPieceCost*units
+	result.TotalPerPieceCost = result.TotalCost / units
 	result.Profit = result.TotalCost * input.CompanyEconomics.DefaultMarkupPercent / 100
 	result.MarkupPercent = input.CompanyEconomics.DefaultMarkupPercent
 	result.SellingPrice = result.TotalCost + result.Profit
 	result.SellingPricePerPiece = result.SellingPrice / units
+	result.CostItems = buildCostItems(result, units)
 	for name, value := range map[string]float64{
 		"total cost": result.TotalCost, "selling price": result.SellingPrice,
 		"profit": result.Profit, "per-piece cost": result.PerPieceCost,
@@ -173,6 +203,38 @@ func Calculate(input Input) (model.ProductionCostBreakdown, error) {
 		}
 	}
 	return result, nil
+}
+
+func buildCostItems(result model.ProductionCostBreakdown, units float64) []model.ProductionCostItem {
+	items := make([]model.ProductionCostItem, 0, 15)
+	add := func(name string, amount float64) {
+		items = append(items, model.ProductionCostItem{
+			Name: name, BatchCost: amount, PerPieceCost: amount / units,
+		})
+	}
+	add("Материал", result.MaterialCost)
+	if result.EquipmentEconomicsApplied {
+		add("Амортизация станка", result.DepreciationCost)
+		add("Электроэнергия станка", result.ElectricityCost)
+		add("Обслуживание станка", result.MaintenanceCost)
+		add("Ремонт станка", result.RepairCost)
+		add("Прочие расходы станка", result.OtherEquipmentCost)
+	} else {
+		add("Затраты на станок", result.MachineCost)
+	}
+	add("Оператор", result.OperatorCost)
+	add("Инструмент", result.ToolingCost)
+	add("Наладка", result.SetupCost)
+	add("Программирование", result.ProgrammingCost)
+	add("Аренда", result.RentCost)
+	add("Коммунальные расходы", result.UtilitiesCost)
+	add("Прочие накладные расходы", result.OtherOverheadCost)
+	items = append(items,
+		model.ProductionCostItem{Name: "Себестоимость", BatchCost: result.TotalCost, PerPieceCost: result.TotalPerPieceCost},
+		model.ProductionCostItem{Name: "Прибыль", BatchCost: result.Profit, PerPieceCost: result.Profit / units},
+		model.ProductionCostItem{Name: "Цена продажи", BatchCost: result.SellingPrice, PerPieceCost: result.SellingPricePerPiece},
+	)
+	return items
 }
 
 func hourlyCost(rate *model.PersonnelRate) float64 {

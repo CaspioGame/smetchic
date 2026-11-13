@@ -161,6 +161,28 @@ func TestProductionEconomicsMigrationContainsCostInputs(t *testing.T) {
 	}
 }
 
+func TestEstimateWorkingDocumentMigrationAddsImmutableVersionLinkage(t *testing.T) {
+	migrationPath := filepath.Join("..", "..", "migrations", "007_estimate_working_document.sql")
+	migration, err := os.ReadFile(migrationPath)
+	if err != nil {
+		t.Fatalf("read working estimate migration: %v", err)
+	}
+	text := string(migration)
+	for _, expected := range []string{
+		"estimate_number_counters",
+		"ADD COLUMN number TEXT",
+		"ADD COLUMN working_input JSONB",
+		"ADD COLUMN current_version_id TEXT",
+		"estimates_company_number_uq",
+		"estimates_current_version_fk",
+		"ON DELETE RESTRICT",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("working estimate migration does not contain %q", expected)
+		}
+	}
+}
+
 func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	databaseURL := os.Getenv(DatabaseEnvVar)
 	if databaseURL == "" {
@@ -207,6 +229,8 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 		"001_initial.sql", "002_project_lifecycle.sql", "003_auth.sql",
 		"004_workspace.sql", "005_allow_multiple_orders_per_project.sql",
 		"006_production_economics.sql",
+		"007_estimate_working_document.sql",
+		"008_global_tools.sql", "009_stankom_catalog.sql", "010_chat_dialogs.sql",
 	}
 	for _, migrationName := range migrations {
 		migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", migrationName))
@@ -371,6 +395,44 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	if len(resultSnapshot["cost_breakdown"]) == 0 {
 		t.Fatal("estimate result snapshot does not contain production cost breakdown")
 	}
+	workingEstimate, err := service.CreateEstimate(ctx, company.ID, application.EstimateInput{
+		Name: "Working integration estimate", ProjectID: project.ID,
+		PartRevisionID: revision.ID, Quantity: 2, EquipmentID: equipment.ID,
+		MarkupPercent: 12.5, MarkupSource: application.EstimateSourceCompanyData,
+	})
+	if err != nil {
+		t.Fatalf("create working estimate: %v", err)
+	}
+	workingInput := application.EstimateInput{
+		Name: workingEstimate.Name, ProjectID: project.ID, PartRevisionID: revision.ID,
+		Quantity: 2, EquipmentID: equipment.ID, MarkupPercent: 12.5,
+		MarkupSource: application.EstimateSourceCompanyData,
+		MachineTime: &application.EstimateOverride{
+			Value: 1.25, Source: application.EstimateSourceUserOverride, Reason: "shop measurement",
+		},
+	}
+	_, workingVersion, err := service.CalculateEstimate(ctx, company.ID, workingEstimate.ID, workingInput)
+	if err != nil {
+		t.Fatalf("calculate working estimate: %v", err)
+	}
+	if workingVersion.MachineTimeHours != 2.5 {
+		t.Fatalf("working version machine time = %v, want 2.5 hours for the batch", workingVersion.MachineTimeHours)
+	}
+	var workingInputSnapshot struct {
+		WorkingInput struct {
+			MachineTime *application.EstimateOverride `json:"machine_time"`
+		} `json:"WorkingInput"`
+		AutomaticMachineTimeHours float64 `json:"AutomaticMachineTimeHours"`
+		UsedMachineTimeHours      float64 `json:"UsedMachineTimeHours"`
+	}
+	if err := json.Unmarshal(workingVersion.InputSnapshot, &workingInputSnapshot); err != nil {
+		t.Fatalf("decode working estimate input snapshot: %v", err)
+	}
+	if workingInputSnapshot.WorkingInput.MachineTime == nil ||
+		workingInputSnapshot.WorkingInput.MachineTime.Reason != "shop measurement" ||
+		workingInputSnapshot.UsedMachineTimeHours != 1.25 {
+		t.Fatalf("working estimate override snapshot = %#v", workingInputSnapshot)
+	}
 	originalVersion, err := service.GetEstimateVersion(ctx, company.ID, estimate.ID, version.ID)
 	if err != nil {
 		t.Fatalf("read persisted estimate snapshots before economics change: %v", err)
@@ -450,13 +512,15 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 		ID: "workspace-integration-cutter", Category: model.ConsumableCutter,
 		Name: "Carbide end mill", DiameterMm: 10, FluteCount: 4, LengthMm: 60,
 		StockQuantity: 3, UnitPrice: 1200, ResourceMinutes: 600, ResourceUnits: 200,
-		ResourceUnitName: "cutting edges", Currency: "RUB", Attributes: json.RawMessage(`{}`),
+		UsedMinutesByUnit: []float64{0, 70, 120},
+		ResourceUnitName:  "cutting edges", Currency: "RUB", Attributes: json.RawMessage(`{}`),
 	}); err != nil {
 		t.Fatalf("save company consumable: %v", err)
 	}
 	companyConsumables, err := service.ListConsumables(ctx, company.ID)
 	if err != nil || len(companyConsumables) != 1 || companyConsumables[0].ID != "workspace-integration-cutter" ||
-		companyConsumables[0].ResourceMinutes != 600 || companyConsumables[0].ResourceUnits != 200 {
+		companyConsumables[0].ResourceMinutes != 600 || companyConsumables[0].ResourceUnits != 200 ||
+		len(companyConsumables[0].UsedMinutesByUnit) != 3 || companyConsumables[0].UsedMinutesByUnit[1] != 70 {
 		t.Fatalf("company consumables = %#v, error = %v", companyConsumables, err)
 	}
 	otherConsumables, err := service.ListConsumables(ctx, otherCompany.ID)
@@ -494,6 +558,9 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 	}
 	if _, err := service.GetEstimate(ctx, otherCompany.ID, estimate.ID); !errors.Is(err, application.ErrNotFound) {
 		t.Errorf("cross-company estimate lookup error = %v, want not found", err)
+	}
+	if _, err := service.GetEstimateDocument(ctx, otherCompany.ID, workingEstimate.ID); !errors.Is(err, application.ErrNotFound) {
+		t.Errorf("cross-company working estimate lookup error = %v, want not found", err)
 	}
 	if _, err := repository.GetEquipment(ctx, otherCompany.ID, equipment.ID); !errors.Is(err, application.ErrNotFound) {
 		t.Errorf("cross-company equipment lookup error = %v, want not found", err)
@@ -555,10 +622,72 @@ func TestPostgresLifecycleSurvivesReconnectAndEnforcesIsolation(t *testing.T) {
 		!json.Valid(loadedVersion.Version.ResultSnapshot) {
 		t.Fatalf("estimate version after reconnect = %#v, error = %v", loadedVersion, err)
 	}
+	loadedWorkingEstimate, err := service.GetEstimateDocument(ctx, company.ID, workingEstimate.ID)
+	if err != nil || loadedWorkingEstimate.Estimate.Number == "" ||
+		loadedWorkingEstimate.Estimate.CurrentVersionID != workingVersion.ID ||
+		len(loadedWorkingEstimate.Versions) != 1 {
+		t.Fatalf("working estimate after reconnect = %#v, error = %v", loadedWorkingEstimate, err)
+	}
 	if _, err := db.ExecContext(ctx, `
 			UPDATE estimate_versions SET final_price = final_price + 1
 			WHERE company_id = $1 AND id = $2`, company.ID, version.ID); err == nil {
 		t.Fatal("estimate version UPDATE succeeded despite immutable trigger")
+	}
+	chat, err := service.NewChat(ctx, company.ID, authUser.ID)
+	if err != nil {
+		t.Fatalf("create persistent chat: %v", err)
+	}
+	if err := repository.ClaimChat(ctx, company.ID, authUser.ID, chat.ID, chat.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.ClaimChat(ctx, company.ID, authUser.ID, chat.ID, chat.Revision); err == nil {
+		t.Fatal("concurrent chat claim succeeded")
+	}
+	chat.Revision++
+	chat.State = json.RawMessage(`{"Turns":[{"Message":"Создай смету"}]}`)
+	chat.Title = "Chat integration"
+	if err := repository.SaveChat(ctx, chat); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewLifecycleRepository(db)
+	reloaded, err := fresh.GetChat(ctx, company.ID, authUser.ID, chat.ID)
+	if err != nil || !bytes.Contains(reloaded.State, []byte("Создай смету")) || reloaded.Revision != chat.Revision {
+		t.Fatalf("chat not persisted: %#v %v", reloaded, err)
+	}
+	for _, owner := range [][2]string{{otherCompany.ID, authUser.ID}, {company.ID, registeredUser.ID}} {
+		if _, err := fresh.GetChat(ctx, owner[0], owner[1], chat.ID); !errors.Is(err, application.ErrNotFound) {
+			t.Fatalf("foreign chat accessible: %v", err)
+		}
+	}
+	manual, err := service.CreateManualEstimate(ctx, company.ID, project.ID, "Manual chat estimate", equipment.ID, 20)
+	if err != nil {
+		t.Fatalf("create manual chat estimate: %v", err)
+	}
+	manualDoc, err := service.GetEstimateDocument(ctx, company.ID, manual.ID)
+	if err != nil || manualDoc.Revision.SourceFormat != "manual" {
+		t.Fatalf("manual revision: %#v %v", manualDoc.Revision, err)
+	}
+	var manualInput application.EstimateInput
+	if err := json.Unmarshal(manual.WorkingInput, &manualInput); err != nil {
+		t.Fatal(err)
+	}
+	manualInput.MachineTime = &application.EstimateOverride{Value: 0.33, Source: application.EstimateSourceUserOverride, Reason: "Fusion"}
+	_, manualVersion, err := service.CalculateEstimate(ctx, company.ID, manual.ID, manualInput)
+	if err != nil || manualVersion.MachineTimeHours < 6.5999 || manualVersion.MachineTimeHours > 6.6001 {
+		t.Fatalf("manual calculation: %#v %v", manualVersion, err)
+	}
+	if _, err := service.CreateManualEstimate(ctx, otherCompany.ID, project.ID, "Foreign", equipment.ID, 1); !errors.Is(err, application.ErrNotFound) {
+		t.Fatalf("manual estimate crossed company: %v", err)
+	}
+	_, err = repository.CreateChatEstimate(ctx,
+		application.EstimateRecord{ID: "rollback-estimate", CompanyID: company.ID, Name: "Rollback", Quantity: 0, WorkingInput: json.RawMessage("{}")},
+		application.PartRecord{ID: "rollback-part", CompanyID: company.ID, ProjectID: project.ID, Name: "Rollback"},
+		application.PartRevisionRecord{ID: "rollback-revision", CompanyID: company.ID, PartID: "rollback-part", ParserVersion: "attachment-base64-v1"})
+	if err == nil {
+		t.Fatal("invalid manual estimate accepted")
+	}
+	if _, err := service.GetPart(ctx, company.ID, "rollback-part"); !errors.Is(err, application.ErrNotFound) {
+		t.Fatalf("failed manual creation left partial part: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `
 			DELETE FROM estimate_versions WHERE company_id = $1 AND id = $2`,

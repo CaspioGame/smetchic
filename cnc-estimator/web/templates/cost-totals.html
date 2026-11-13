@@ -1,0 +1,15 @@
+{{define "cost-totals"}}
+<div class="grid">
+  {{range .CostTotals}}
+  <details class="cost-total">
+    <summary><span>{{.Name}} <span class="cost-chevron" aria-hidden="true">▾</span></span><strong>{{money .Amount $.Result.CostBreakdown.Currency}}</strong></summary>
+    {{if .Formula}}
+    <p class="cost-formula">{{.Formula}}</p>
+    <p class="cost-substitution">{{.Values}}</p>
+    {{else}}
+    <p class="muted">Сохранённый итог. Подробных исходных данных для объяснения этого итога в версии недостаточно.</p>
+    {{end}}
+  </details>
+  {{end}}
+</div>
+{{end}}

@@ -55,3 +55,10 @@ type ConfigProvider interface {
 	GetEquipment(context.Context, string, string) (model.Equipment, error)
 	ListEquipment(context.Context, string) ([]model.Equipment, error)
 }
+
+type EstimateDocumentRepository interface {
+	CreateEstimate(context.Context, EstimateRecord) (EstimateRecord, error)
+	UpdateEstimateInput(context.Context, string, EstimateRecord) (EstimateRecord, error)
+	ListCompanyEstimates(context.Context, string) ([]EstimateRecord, error)
+	GetEstimateDocument(context.Context, string, string) (EstimateDocument, error)
+}

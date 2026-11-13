@@ -56,6 +56,7 @@ func TestCalculateProductionCostBreakdown(t *testing.T) {
 	assertNear(t, "batch", breakdown.BatchCost, 70)
 	assertNear(t, "per piece", breakdown.PerPieceCost, 257.0/6)
 	assertNear(t, "total", breakdown.TotalCost, 467.0/3)
+	assertNear(t, "total cost per piece including batch costs", breakdown.TotalPerPieceCost, 467.0/6)
 	assertNear(t, "selling price", breakdown.SellingPrice, 513.7/3)
 	assertNear(t, "per-piece selling price", breakdown.SellingPricePerPiece, 513.7/6)
 }

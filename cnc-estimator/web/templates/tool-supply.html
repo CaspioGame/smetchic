@@ -1,0 +1,18 @@
+{{define "tool-supply"}}
+{{with .ToolSupply}}
+<div>
+  <h3>Ресурс инструмента на партию</h3>
+  <p>Требуется {{printf "%.2f" .RequiredMinutes}} мин. работы фрезы.</p>
+  {{if .StockKnown}}
+  <p>На складе доступно {{printf "%.2f" .AvailableMinutes}} мин. ресурса.</p>
+  {{if gt .PurchaseQuantity 0.0}}
+  <p>К закупке {{printf "%.0f" .PurchaseQuantity}} шт. на {{money .PurchaseCost $.Currency}}. Закупка показана отдельно от износа в себестоимости.</p>
+  {{else}}
+  <p>Ресурса хватает. Закупка не нужна.</p>
+  {{end}}
+  {{else}}
+  <p>Потребность в закупке неизвестна. Для проверки выберите складскую фрезу с указанным ресурсом и наработкой.</p>
+  {{end}}
+</div>
+{{end}}
+{{end}}

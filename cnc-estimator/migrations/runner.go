@@ -321,6 +321,69 @@ func detectMigrationState(ctx context.Context, connection *sql.Conn, version int
 			return migrationAbsent, err
 		}
 		return stateFromCount(count, 6), nil
+	case 7:
+		var count int
+		err := connection.QueryRowContext(ctx, `
+			SELECT
+				(EXISTS (
+					SELECT 1 FROM information_schema.tables
+					WHERE table_schema = ANY(current_schemas(false))
+					  AND table_name = 'estimate_number_counters'
+				))::int
+				+ (SELECT COUNT(*) FROM information_schema.columns
+				   WHERE table_schema = ANY(current_schemas(false))
+				     AND table_name = 'estimates'
+				     AND column_name IN (
+				       'number', 'project_id', 'part_id', 'order_id', 'quantity',
+				       'status', 'working_input', 'current_version_id'
+				     ))::int
+				+ (EXISTS (
+					SELECT 1 FROM pg_constraint
+					WHERE conname = 'estimates_company_number_uq'
+					  AND conrelid = to_regclass('estimates')
+				))::int
+				+ (EXISTS (
+					SELECT 1 FROM pg_constraint
+					WHERE conname = 'estimates_current_version_fk'
+					  AND conrelid = to_regclass('estimates')
+				))::int`).Scan(&count)
+		if err != nil {
+			return migrationAbsent, err
+		}
+		return stateFromCount(count, 11), nil
+	case 8:
+		var count int
+		err := connection.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema = ANY(current_schemas(false))
+			  AND table_name = 'global_tools'
+			  AND column_name IN ('id', 'name', 'unit_price', 'resource_minutes', 'currency')`).Scan(&count)
+		if err != nil {
+			return migrationAbsent, err
+		}
+		return stateFromCount(count, 5), nil
+	case 9:
+		var count int
+		err := connection.QueryRowContext(ctx, `
+			SELECT
+				(EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('global_tools')
+					AND conname = 'global_tools_resource_nonnegative'))::int
+				+ (EXISTS (SELECT 1 FROM information_schema.columns
+					WHERE table_schema = ANY(current_schemas(false)) AND table_name = 'global_tools'
+					AND column_name = 'source_url'))::int`).Scan(&count)
+		if err != nil {
+			return migrationAbsent, err
+		}
+		return stateFromCount(count, 2), nil
+	case 10:
+		var count int
+		err := connection.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.columns
+			WHERE table_schema=ANY(current_schemas(false)) AND table_name='chat_dialogs'
+			AND column_name IN ('id','company_id','user_id','title','state','revision','busy_until','updated_at')`).Scan(&count)
+		if err != nil {
+			return migrationAbsent, err
+		}
+		return stateFromCount(count, 8), nil
 	default:
 		return migrationAbsent, nil
 	}

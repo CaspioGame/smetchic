@@ -11,26 +11,28 @@ import (
 const ConsumableCutter = "cutter"
 
 type Consumable struct {
-	ID               string
-	CompanyID        string
-	Category         string
-	Name             string
-	Manufacturer     string
-	ToolType         string
-	DiameterMm       float64
-	FluteCount       int
-	ToolMaterial     string
-	Coating          string
-	LengthMm         float64
-	StockQuantity    int
-	UnitPrice        float64
-	ResourceMinutes  float64
-	ResourceUnits    float64
-	ResourceUnitName string
-	Currency         string
-	Attributes       json.RawMessage
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                string
+	CompanyID         string
+	Category          string
+	Name              string
+	Manufacturer      string
+	ToolType          string
+	DiameterMm        float64
+	FluteCount        int
+	ToolMaterial      string
+	Coating           string
+	LengthMm          float64
+	StockQuantity     int
+	UnitPrice         float64
+	ResourceMinutes   float64
+	UsedMinutesByUnit []float64 `json:",omitempty"`
+	ResourceUnits     float64
+	ResourceUnitName  string
+	Currency          string
+	SourceURL         string `json:",omitempty"`
+	Attributes        json.RawMessage
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 func (item Consumable) Validate() error {
@@ -45,6 +47,14 @@ func (item Consumable) Validate() error {
 	}
 	if !finiteNonNegative(item.ResourceMinutes) || !finiteNonNegative(item.ResourceUnits) {
 		return fmt.Errorf("consumable resource must be non-negative")
+	}
+	if item.UsedMinutesByUnit != nil && len(item.UsedMinutesByUnit) != item.StockQuantity {
+		return fmt.Errorf("укажите наработку каждой фрезы на складе")
+	}
+	for _, used := range item.UsedMinutesByUnit {
+		if !finiteNonNegative(used) {
+			return fmt.Errorf("наработка фрезы должна быть конечным неотрицательным числом")
+		}
 	}
 	if strings.TrimSpace(item.Currency) == "" {
 		return fmt.Errorf("consumable currency is required")

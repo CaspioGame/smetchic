@@ -420,6 +420,26 @@ func (s *Server) rejectUnauthorizedMutation(w http.ResponseWriter, r *http.Reque
 			return true
 		}
 	}
+	if r.URL.Path == "/chat" ||
+		(strings.HasPrefix(r.URL.Path, "/revisions/") && strings.HasSuffix(r.URL.Path, "/estimates")) ||
+		(strings.HasPrefix(r.URL.Path, "/estimates/") && (strings.HasSuffix(r.URL.Path, "/calculate") || strings.HasSuffix(r.URL.Path, "/assist"))) {
+		switch identity.Role {
+		case model.CompanyRoleOwner, model.CompanyRoleAdmin, model.CompanyRoleManager, model.CompanyRoleOperator:
+			return false
+		default:
+			http.Error(w, "Недостаточно прав для создания или расчёта сметы.", http.StatusForbidden)
+			return true
+		}
+	}
+	if strings.HasPrefix(r.URL.Path, "/estimates/") {
+		if identity.Role == model.CompanyRoleOwner ||
+			identity.Role == model.CompanyRoleAdmin ||
+			identity.Role == model.CompanyRoleManager {
+			return false
+		}
+		http.Error(w, "Недостаточно прав для изменения сметы.", http.StatusForbidden)
+		return true
+	}
 	if strings.HasPrefix(r.URL.Path, "/projects/") ||
 		strings.HasPrefix(r.URL.Path, "/revisions/") ||
 		strings.HasPrefix(r.URL.Path, "/equipment/") ||

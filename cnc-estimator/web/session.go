@@ -14,11 +14,12 @@ const (
 )
 
 type serverSession struct {
-	ID        string
-	UserID    string
-	CSRFToken string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	ID           string
+	UserID       string
+	CSRFToken    string
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+	estimateChat []estimateChatTurn
 }
 
 type sessionStore struct {

@@ -1,0 +1,129 @@
+{{define "estimate-module-fields"}}
+<div data-estimate-modules>
+  <style>[data-estimate-modules] [hidden] { display: none; }</style>
+  <input type="hidden" name="estimate_modules_present" value="1">
+  <fieldset>
+    <legend>Добавить модуль</legend>
+    <label for="estimate-module-search">Поиск по названию</label>
+    <input id="estimate-module-search" type="search" placeholder="Например, материалы, инструмент или программист">
+    <p class="muted">Другой источник материала или инструмента заменит выбранный модуль этой группы.</p>
+    <div data-module-results>
+      {{range estimateModules}}
+      <button type="button" class="secondary" data-add-module="{{.ID}}" data-search="{{.Name}} {{if eq .Group "material"}}материалы{{end}} {{if eq .Group "tool"}}инструменты фрезы{{end}}">{{.Name}}</button>
+      {{end}}
+    </div>
+    <p class="muted" data-no-modules hidden>Подходящих модулей для добавления нет.</p>
+  </fieldset>
+  {{range estimateModules}}
+  {{$active := index $.EstimateFormValues (printf "module_%s" .ID)}}
+  <fieldset data-module="{{.ID}}" data-module-group="{{.Group}}" {{if not $active}}hidden disabled{{end}}>
+    <legend>{{.Name}}</legend>
+    <input type="hidden" name="estimate_module" value="{{.ID}}">
+    {{if eq .ID "stock_material"}}
+<label for="estimate-material">Материал со склада компании</label><select id="estimate-material" name="material_id"><option value="">Не выбран</option>
+            {{range $.Materials}}<option value="{{.ID}}" {{if eq (index $.EstimateFormValues "material_id") .ID}}selected{{end}}>{{.Name}} {{.Grade}} — {{money .PricePerKg .Currency}}/кг</option>{{end}}
+          </select>
+<label for="stock-material-weight">Масса заготовки на одну деталь, кг</label>
+          <input id="stock-material-weight" name="material_weight_kg" type="number" min="0" step="any" value="{{index $.EstimateFormValues "material_weight_kg"}}">
+    {{else if eq .ID "catalog_material"}}
+<label for="estimate-global-material">Материал из общей базы</label><select id="estimate-global-material" name="global_material_id"><option value="">Не выбран</option>
+            {{range $.GlobalMaterials}}<option value="{{.ID}}" {{if eq (index $.EstimateFormValues "global_material_id") .ID}}selected{{end}}>{{.Name}} {{.Grade}} — {{money .ReferencePriceKg .Currency}}/кг</option>{{end}}
+          </select>
+<label for="catalog-material-weight">Масса заготовки на одну деталь, кг</label>
+          <input id="catalog-material-weight" name="material_weight_kg" type="number" min="0" step="any" value="{{index $.EstimateFormValues "material_weight_kg"}}">
+    {{else if eq .ID "stock_blank"}}
+<label for="estimate-stock-blank">Заготовка</label><select id="estimate-stock-blank" name="stock_blank_id"><option value="">Не выбрана</option>
+            {{range $.StockBlanks}}<option value="{{.ID}}" {{if eq (index $.EstimateFormValues "stock_blank_id") .ID}}selected{{end}}>{{.Name}} — {{money .PricePerPiece .Currency}}</option>{{end}}
+          </select>
+    {{else if eq .ID "stock_tool"}}
+<label for="estimate-tool">Инструмент компании</label><select id="estimate-tool" name="consumable_id"><option value="">Не выбран</option>
+            {{range $.Consumables}}<option value="{{.ID}}" {{if eq (index $.EstimateFormValues "consumable_id") .ID}}selected{{end}}>{{.Name}} — {{money .UnitPrice .Currency}}, ресурс {{printf "%.2f" .ResourceMinutes}} мин.</option>{{end}}
+          </select>
+<div><label for="estimate-tool-usage">Расход инструмента, мин./деталь</label><input id="estimate-tool-usage" name="tool_usage_minutes" type="number" min="0" step="any" value="{{index $.EstimateFormValues "tool_usage_minutes"}}"></div>
+<div><label for="tool-usage-reason">Причина расхода вручную</label><input id="tool-usage-reason" name="tool_usage_reason" value="{{index $.EstimateFormValues "tool_usage_reason"}}"></div>
+    {{else if eq .ID "catalog_tool"}}
+<label for="global-tool">Инструмент из общей базы</label>
+          <select id="global-tool" name="global_tool_id">
+            <option value="">Не выбран</option>
+            {{range $.GlobalTools}}<option value="{{.ID}}" {{if eq (index $.EstimateFormValues "global_tool_id") .ID}}selected{{end}}>{{.Name}} — {{if .SourceURL}}от {{end}}{{money .UnitPrice .Currency}}, {{if gt .ResourceMinutes 0.0}}ресурс {{printf "%.2f" .ResourceMinutes}} мин.{{else}}ресурс не указан{{end}}</option>
+            {{else}}<option disabled>Общий справочник пока пуст</option>{{end}}
+          </select>
+<div><label for="global-tool-usage">Расход инструмента, мин./деталь</label><input id="global-tool-usage" name="tool_usage_minutes" type="number" min="0" step="any" value="{{index $.EstimateFormValues "tool_usage_minutes"}}"></div>
+<div><label for="global-tool-usage-reason">Причина расхода вручную</label><input id="global-tool-usage-reason" name="tool_usage_reason" value="{{index $.EstimateFormValues "tool_usage_reason"}}"></div>
+    {{else if eq .ID "operator"}}
+<div><label for="fixed-operator-cost">Оператор · фиксированная оплата</label><input id="fixed-operator-cost" name="fixed_operator_cost" type="number" min="0" step="any" value="{{index $.EstimateFormValues "fixed_operator_cost"}}"></div>
+<p class="muted">Оставьте сумму пустой для расчёта по ставке оператора и машинному времени.</p>
+    {{else if eq .ID "setup"}}
+<div><label for="estimate-setup">Наладка, мин./партию</label><input id="estimate-setup" name="setup_time_minutes" type="number" min="0" step="any" value="{{index $.EstimateFormValues "setup_time_minutes"}}"></div>
+<div><label for="setup-reason">Причина наладки</label><input id="setup-reason" name="setup_reason" value="{{index $.EstimateFormValues "setup_reason"}}"></div>
+<div><label for="fixed-setup-cost">Наладчик · фиксированная оплата</label><input id="fixed-setup-cost" name="fixed_setup_cost" type="number" min="0" step="any" value="{{index $.EstimateFormValues "fixed_setup_cost"}}"></div>
+    {{else if eq .ID "programming"}}
+<div><label for="estimate-programming">Программирование, ч./партию</label><input id="estimate-programming" name="programming_hours" type="number" min="0" step="any" value="{{index $.EstimateFormValues "programming_hours"}}"></div>
+<div><label for="programming-reason">Причина подготовки</label><input id="programming-reason" name="programming_reason" value="{{index $.EstimateFormValues "programming_reason"}}"></div>
+<div><label for="fixed-programming-cost">Программист · фиксированная оплата</label><input id="fixed-programming-cost" name="fixed_programming_cost" type="number" min="0" step="any" value="{{index $.EstimateFormValues "fixed_programming_cost"}}"></div>
+    {{end}}
+    {{if or (eq .ID "setup") (eq .ID "programming")}}
+    <p class="muted">Фиксированная сумма применяется ко всей партии. Если поле пустое, оплата считается по времени и ставке.</p>
+    {{end}}
+    <button type="button" class="secondary" data-remove-module>Убрать модуль</button>
+  </fieldset>
+  {{end}}
+  <noscript><p>Включите JavaScript, чтобы добавлять и убирать модули.</p></noscript>
+  <script>
+    (() => {
+      const root = document.currentScript.closest("[data-estimate-modules]");
+      const search = root.querySelector("[type=search]");
+      const buttons = [...root.querySelectorAll("[data-add-module]")];
+      const modules = new Map([...root.querySelectorAll("[data-module]")].map(el => [el.dataset.module, el]));
+
+      function refresh() {
+        const query = search.value.toLocaleLowerCase("ru").trim();
+        let visible = 0;
+        for (const button of buttons) {
+          button.hidden = !modules.get(button.dataset.addModule).disabled ||
+            !button.dataset.search.toLocaleLowerCase("ru").includes(query);
+          if (!button.hidden) visible++;
+        }
+        root.querySelector("[data-no-modules]").hidden = visible !== 0;
+      }
+
+      function remove(module) {
+        module.disabled = module.hidden = true;
+        for (const field of module.querySelectorAll("select, input:not([type=hidden])")) {
+          field.value = "";
+        }
+      }
+
+      root.addEventListener("click", event => {
+        const add = event.target.closest("[data-add-module]");
+        const discard = event.target.closest("[data-remove-module]");
+        if (add) {
+          const selected = modules.get(add.dataset.addModule);
+          const group = selected.dataset.moduleGroup;
+          for (const module of modules.values()) {
+            if (group && module !== selected && module.dataset.moduleGroup === group && !module.disabled) {
+              remove(module);
+            }
+          }
+          selected.disabled = selected.hidden = false;
+          selected.querySelector("select, input:not([type=hidden])").focus();
+        } else if (discard) {
+          remove(discard.closest("[data-module]"));
+          search.focus();
+        }
+        refresh();
+      });
+      search.addEventListener("input", refresh);
+      search.addEventListener("keydown", event => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        buttons.find(button => !button.hidden)?.click();
+      });
+      for (const module of modules.values()) {
+        if (module.disabled) remove(module);
+      }
+      refresh();
+    })();
+  </script>
+</div>
+{{end}}

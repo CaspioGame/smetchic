@@ -144,3 +144,22 @@ workspace catalogs, consumables, and orders are in
 removes the old one-order-per-project restriction without changing existing
 order data. Production economics and consumable resource fields are introduced
 by [`migrations/006_production_economics.sql`](migrations/006_production_economics.sql).
+Working estimate documents, company-scoped estimate numbers, quantities, optional
+order links, and the current immutable calculation version are added by
+[`migrations/007_estimate_working_document.sql`](migrations/007_estimate_working_document.sql).
+The Web workflow is available from **Сметы**: create a draft from a part revision,
+adjust its calculation inputs, and recalculate to append a new immutable version.
+
+## Локальный помощник по смете
+
+Установите Ollama для Windows с https://ollama.com/download/windows и загрузите модель:
+
+```powershell
+ollama pull qwen3:4b
+```
+
+Запустите Ollama и приложение, затем откройте вкладку «Чат». Можно сразу написать «Создай проект Корпус», затем «Создай в этом проекте смету Игла на 20 деталей, станок ...». Проекты, оборудование и сметы выбираются по названиям. Создание, изменение параметров и пересчёт подтверждаются кнопкой в переписке. Черновик можно создать без файла. Для пересчёта потребуется время обработки.
+
+Диалоги хранятся в PostgreSQL и доступны их автору в текущей компании после повторного входа. Таблицу диалогов добавляет штатная миграция 010 при запуске приложения или через `go run ./cmd/migrate`. При недоступной модели сообщения об ошибках также сохраняются в диалоге.
+
+Сервер обращается к локальному Ollama на `127.0.0.1:11434`. Чтобы выбрать другую установленную локальную модель с поддержкой структурированных ответов, задайте `ESTIMATE_OLLAMA_MODEL` перед запуском приложения.

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
@@ -8,6 +9,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"smetchic/application"
 	"smetchic/equipment"
@@ -19,6 +22,7 @@ import (
 var templateFiles embed.FS
 
 type Server struct {
+	chatAssistant   func(context.Context, string, map[string]string, chatCatalog) (estimateAssistantReply, error)
 	catalog         *equipment.Catalog
 	store           *storage.Store
 	companyID       string
@@ -120,7 +124,11 @@ func NewCabinetHandler(store *storage.Store, companyID string) (http.Handler, er
 }
 
 func newServer(catalog *equipment.Catalog, store *storage.Store, companyID string, defaults model.EstimateSettings) (*Server, error) {
-	templates, err := template.ParseFS(templateFiles, "templates/*.html")
+	templates, err := template.New("root").Funcs(template.FuncMap{
+		"money":           formatMoney,
+		"equipmentType":   equipmentTypeLabel,
+		"estimateModules": application.EstimateModuleCatalog,
+	}).ParseFS(templateFiles, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("не удалось загрузить HTML-шаблоны: %w", err)
 	}
@@ -133,6 +141,26 @@ func newServer(catalog *equipment.Catalog, store *storage.Store, companyID strin
 		defaultSettings: defaults, templates: templates,
 		csrfToken: base64.RawURLEncoding.EncodeToString(token),
 	}, nil
+}
+
+func formatMoney(amount float64, currency string) string {
+	formatted := strconv.FormatFloat(amount, 'f', 2, 64)
+	parts := strings.SplitN(formatted, ".", 2)
+	integer := parts[0]
+	start := 0
+	if strings.HasPrefix(integer, "-") {
+		start = 1
+	}
+	for index := len(integer) - 3; index > start; index -= 3 {
+		integer = integer[:index] + " " + integer[index:]
+	}
+	symbol := map[string]string{
+		"RUB": "₽", "USD": "$", "EUR": "€", "CNY": "¥",
+	}[currency]
+	if symbol == "" {
+		symbol = currency
+	}
+	return integer + "." + parts[1] + " " + symbol
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, status int, data any) {

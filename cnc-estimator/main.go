@@ -60,7 +60,10 @@ func run(args []string) error {
 		if err != nil {
 			return fmt.Errorf("не удалось подготовить Web-интерфейс: %w", err)
 		}
-		address := "127.0.0.1:8080"
+		address := os.Getenv("APP_ADDR")
+		if address == "" {
+			address = "127.0.0.1:8080"
+		}
 		log.Printf("Server started on %s", address)
 		return http.ListenAndServe(address, handler)
 	}

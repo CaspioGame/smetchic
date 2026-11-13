@@ -3,16 +3,17 @@
 <html lang="ru">
 {{template "page-head" .}}
 <body>
-  <div class="app">
+  <div class="app{{if eq .View "chat"}} chat-app{{end}}">
     {{template "sidebar" .}}
-    <main class="content">
+    <main class="content{{if eq .View "chat"}} chat-content{{end}}">
       <h1>{{.Title}}</h1>
       <p class="muted">Компания: {{.Company.Name}}</p>
       {{if .Error}}<div class="notice error" role="alert">{{.Error}}</div>{{end}}
 
+      {{if eq .View "chat"}}{{template "estimate-chat" .}}{{end}}
+
       {{if eq .View "projects"}}
       <section class="card">
-        <p>Проекты PostgreSQL текущей компании.</p>
         <a class="button" href="/projects/new">Создать проект</a>
         <div class="table-wrap">
           <table><thead><tr><th>Проект</th><th>Описание</th><th>Создан</th></tr></thead><tbody>
@@ -21,6 +22,19 @@
             </tr>{{else}}<tr><td colspan="3" class="muted">Проектов пока нет.</td></tr>{{end}}
           </tbody></table>
         </div>
+      </section>
+      {{end}}
+
+      {{if eq .View "estimates"}}
+      <section class="card">
+        <p>Рабочие документы и сохранённые версии смет компании.</p>
+        <div class="table-wrap"><table><thead><tr><th>Номер</th><th>Название</th><th>Проект</th><th>Количество</th><th>Статус</th><th>Обновлена</th></tr></thead><tbody>
+          {{range .Estimates}}<tr>
+            <td><a href="/estimates/{{.ID}}">{{.Number}}</a></td><td>{{.Name}}</td>
+            <td><a href="/projects/{{.ProjectID}}">{{if .ProjectName}}{{.ProjectName}}{{else}}Название проекта не указано{{end}}</a></td>
+            <td>{{.Quantity}}</td><td>{{.Status}}</td><td>{{.UpdatedAt.Format "02.01.2006 15:04"}}</td>
+          </tr>{{else}}<tr><td colspan="6" class="muted">Смет пока нет. Создайте её из страницы ревизии детали.</td></tr>{{end}}
+        </tbody></table></div>
       </section>
       {{end}}
 
@@ -61,8 +75,8 @@
           <input id="part-name" name="part_name" maxlength="200">
           <label for="part-description">Описание</label>
           <input id="part-description" name="part_description" maxlength="2000">
-          <label for="part-file">Файл .part (не более 2 МБ)</label>
-          <input id="part-file" type="file" name="part_file" accept=".part" required>
+          <label for="part-file">Файл детали (не более 2 МБ)</label>
+          <input id="part-file" type="file" name="part_file" required>
           <button type="submit">Загрузить и создать ревизию</button>
         </form>
       </section>
@@ -88,11 +102,13 @@
         <h2>Ревизия #{{.Revision.RevisionNumber}}</h2>
         <p>Файл: <strong>{{.Revision.SourceFilename}}</strong></p>
         <p><a class="button secondary" href="/revisions/{{.Revision.ID}}/source">Скачать исходный файл</a></p>
-        <p>Формат: {{.Revision.SourceFormat}}; parser: {{.Revision.ParserVersion}}</p>
         <p>SHA-256: <code>{{.Revision.SourceHash}}</code></p>
+        {{if .Revision.ParsedPart.Features}}
         <p>Материал: {{.Revision.ParsedPart.Material}}</p>
         <p>Заготовка: {{printf "%.2f × %.2f × %.2f мм" .Revision.ParsedPart.Stock.Width .Revision.ParsedPart.Stock.Length .Revision.ParsedPart.Stock.Height}}</p>
+        {{end}}
       </section>
+      {{if .Revision.ParsedPart.Features}}
       <section class="card">
         <h2>Features</h2>
         <div class="table-wrap"><table><thead><tr><th>ID</th><th>Тип</th><th>Размеры, мм</th></tr></thead><tbody>
@@ -100,119 +116,141 @@
           {{else}}<tr><td colspan="3" class="muted">Features отсутствуют.</td></tr>{{end}}
         </tbody></table></div>
       </section>
+      {{end}}
       <section class="card">
-        <h2>Создать версию расчёта</h2>
+        <h2>Создать рабочую смету</h2>
         {{if .Equipment}}
-        <form method="post" action="/revisions/{{.Revision.ID}}/calculate">
+        <form method="post" action="/revisions/{{.Revision.ID}}/estimates">
           <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-          <label for="estimate-name">Название сметы</label>
-          <input id="estimate-name" name="estimate_name" value="Расчёт">
-          <label for="equipment-id">Оборудование</label>
-          <select id="equipment-id" name="equipment_id" required>
-            {{range .Equipment}}<option value="{{.ID}}">{{.Name}} — {{printf "%.2f" .MachineRatePerHour}} / час</option>{{end}}
-          </select>
-          <label for="markup">Наценка, %</label>
-          <input id="markup" name="markup_percent" type="number" min="0" step="any" value="{{.Markup}}" required>
-          <div class="grid">
-            <div><label for="quantity">Размер партии, шт.</label><input id="quantity" name="quantity" type="number" min="1" step="1" value="1" required></div>
-            <div><label for="setup-time">Наладка, мин. на партию</label><input id="setup-time" name="setup_time_minutes" type="number" min="0" step="any" value="0"></div>
-            <div><label for="programming-hours">Программирование, ч. на партию</label><input id="programming-hours" name="programming_hours" type="number" min="0" step="any" value="0"></div>
-          </div>
-          <label for="stock-blank">Заготовка (цена за штуку имеет приоритет)</label>
-          <select id="stock-blank" name="stock_blank_id">
-            <option value="">Не выбрана</option>
-            {{range .StockBlanks}}<option value="{{.ID}}">{{.Name}} — {{printf "%.2f" .PricePerPiece}} {{.Currency}}</option>{{end}}
-          </select>
-          <label for="material">Материал для оценки по объёму заготовки</label>
-          <select id="material" name="material_id">
-            <option value="">Не выбран</option>
-            {{range .Materials}}<option value="{{.ID}}">{{.Name}} {{.Grade}} — {{printf "%.2f" .PricePerKg}} {{.Currency}}/кг</option>{{end}}
-          </select>
-          <label for="global-material">Справочный материал (не предложение поставщика)</label>
-          <select id="global-material" name="global_material_id">
-            <option value="">Не выбран</option>
-            {{range .GlobalMaterials}}<option value="{{.ID}}">{{.Name}} {{.Grade}} — {{printf "%.2f" .ReferencePriceKg}} {{.Currency}}/кг</option>{{end}}
-          </select>
-          <label for="consumable">Инструмент</label>
-          <select id="consumable" name="consumable_id">
-            <option value="">Не выбран</option>
-            {{range .Consumables}}<option value="{{.ID}}">{{.Name}} — {{printf "%.2f" .UnitPrice}} {{.Currency}}, ресурс {{printf "%.2f" .ResourceMinutes}} мин.</option>{{end}}
-          </select>
-          <label for="tool-usage">Расход выбранного инструмента, мин. на деталь</label>
-          <input id="tool-usage" name="tool_usage_minutes" type="number" min="0" step="any" value="0">
-          <p class="muted">Незаполненные затраты не добавляются автоматически; результат содержит предупреждения о пропущенных настройках.</p>
-          <button type="submit">Рассчитать и сохранить версию</button>
+          {{template "estimate-fields" .}}
+          <button type="submit">Создать черновик сметы</button>
         </form>
         {{else}}<div class="notice warning">В PostgreSQL нет активного оборудования компании.</div>{{end}}
       </section>
       <section class="card">
         <h2>Сметы этой ревизии</h2>
-        {{range .Estimates}}<p><a href="/estimates/{{.ID}}">{{.Name}}</a></p>{{else}}<p class="muted">Смет пока нет.</p>{{end}}
+        {{range .Estimates}}<p><a href="/estimates/{{.ID}}">{{.Number}} — {{.Name}}</a> ({{.Status}})</p>{{else}}<p class="muted">Смет пока нет.</p>{{end}}
       </section>
       {{end}}
 
       {{if eq .View "estimate"}}
+      <p><a href="/estimates">← Все сметы</a> · <a href="/estimates/{{.Estimate.ID}}/edit">Редактировать и пересчитать</a></p>
       <section class="card">
-        <h2>{{.Estimate.Name}} — версии</h2>
-        <div class="table-wrap"><table><thead><tr><th>Версия</th><th>Время станка</th><th>Ставка</th><th>Цена</th><th>Дата</th></tr></thead><tbody>
+        <h2>Смета №{{.Estimate.Number}}</h2>
+        <p>{{.Estimate.Name}} · статус: <strong>{{.Estimate.Status}}</strong></p>
+        <p>Проект: <a href="/projects/{{.Project.ID}}">{{if .Project.Name}}{{.Project.Name}}{{else}}Название проекта не указано{{end}}</a></p>
+        {{if .Order.ID}}<p>Заказ: {{.Order.Name}}</p>{{end}}
+        <p>Деталь: <a href="/parts/{{.Part.ID}}">{{if .Part.Name}}{{.Part.Name}}{{else}}Деталь без названия{{end}}</a>, ревизия <a href="/revisions/{{.Revision.ID}}">#{{.Revision.RevisionNumber}}</a></p>
+        <p>Количество: <strong>{{.Estimate.Quantity}} шт.</strong></p>
+        {{if .Estimate.CurrentVersionID}}<p>Текущий результат: <a href="/estimates/{{.Estimate.ID}}/versions/{{.Estimate.CurrentVersionID}}">открыть сохранённую версию</a></p>
+        {{else}}<p class="muted">Расчёт ещё не сохранён. Откройте редактирование и выполните пересчёт.</p>{{end}}
+      </section>
+      {{if .Result.CostBreakdown}}
+      <section class="card">
+        <h2>Расчёт себестоимости</h2>
+        <p><strong>Материал:</strong> {{if .MaterialName}}{{.MaterialName}}{{else}}не указан{{end}}</p>
+        <p><strong>Источник цены:</strong> {{.MaterialPriceLabel}}</p>
+        {{if .MaterialPriceNote}}<p class="muted">{{.MaterialPriceNote}}</p>{{end}}
+        <p><strong>Наценка:</strong> {{printf "%.2f" .Result.CostBreakdown.MarkupPercent}}%</p>
+        {{template "cost-table" .}}
+        {{template "cost-totals" .}}
+        {{template "tool-supply" .Result.CostBreakdown}}
+      </section>
+      {{end}}
+      {{if and .Result.CostBreakdown .Result.CostBreakdown.Warnings}}
+      <section class="card">
+        <h2>⚠ Требует настройки</h2>
+        <ul>{{range .CostWarnings}}<li>{{.}}</li>{{end}}</ul>
+      </section>
+      {{end}}
+      <section class="card">
+        <h2>История версий</h2>
+        <div class="table-wrap"><table><thead><tr><th>Версия</th><th>Машинное время партии</th><th>Затраты на станок</th><th>Цена партии</th><th>Дата</th></tr></thead><tbody>
           {{range .Versions}}<tr>
-            <td><a href="/estimates/{{.EstimateID}}/versions/{{.ID}}">#{{.VersionNumber}}</a></td>
-            <td>{{printf "%.4f ч" .MachineTimeHours}}</td><td>{{printf "%.2f %s/ч" .HourlyRate .Currency}}</td>
-            <td>{{printf "%.2f %s" .FinalPrice .Currency}}</td><td>{{.CreatedAt.Format "02.01.2006 15:04"}}</td>
+            <td><a href="/estimates/{{.EstimateID}}/versions/{{.ID}}">v{{.VersionNumber}}</a>{{if eq $.Estimate.CurrentVersionID .ID}} · текущая{{end}}</td>
+            <td>{{printf "%.2f ч" .MachineTimeHours}}</td><td>{{money .MachineCost .Currency}}</td>
+            <td>{{money .FinalPrice .Currency}}</td><td>{{.CreatedAt.Format "02.01.2006 15:04"}}</td>
           </tr>{{else}}<tr><td colspan="5" class="muted">Версий расчёта пока нет.</td></tr>{{end}}
         </tbody></table></div>
       </section>
       {{end}}
 
-      {{if eq .View "version"}}
-      <p><a href="/estimates/{{.Estimate.ID}}">← Все версии «{{.Estimate.Name}}»</a></p>
+      {{if eq .View "estimate-edit"}}
+      <p><a href="/estimates/{{.Estimate.ID}}">← Смета {{.Estimate.Number}}</a> · <a href="/estimates">Все сметы</a></p>
       <section class="card">
-        <h2>Версия расчёта #{{.Version.VersionNumber}}</h2>
+        <h2>Основные параметры сметы №{{.Estimate.Number}}</h2>
+        <p>Проект: <a href="/projects/{{.Project.ID}}">{{if .Project.Name}}{{.Project.Name}}{{else}}Название проекта не указано{{end}}</a></p>
+        <p>Деталь: <a href="/parts/{{.Part.ID}}">{{if .Part.Name}}{{.Part.Name}}{{else}}Деталь без названия{{end}}</a>; ревизия #{{.Revision.RevisionNumber}}</p>
+        <form method="post" action="/estimates/{{.Estimate.ID}}/calculate">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          {{if .AssistantChanges}}
+            <div class="notice">
+              <strong>Предложение из чата</strong>
+              <ul>{{range .AssistantChanges}}<li>{{.}}</li>{{end}}</ul>
+              <p>Проверьте поля и заполните причины изменений перед пересчётом.</p>
+            </div>
+          {{end}}
+          {{template "estimate-fields" .}}
+          <button type="submit">Пересчитать и создать новую версию</button>
+        </form>
+      </section>
+      {{end}}
+
+      {{if eq .View "version"}}
+      <p><a href="/estimates">← Все сметы</a> · <a href="/estimates/{{.Estimate.ID}}">Смета №{{.Estimate.Number}}</a>
+        · <a href="/projects/{{.Project.ID}}">{{if .Project.Name}}{{.Project.Name}}{{else}}Название проекта не указано{{end}}</a>
+        · <a href="/parts/{{.Part.ID}}">{{if .Part.Name}}{{.Part.Name}}{{else}}Деталь без названия{{end}}</a></p>
+      <section class="card">
+        <h2>Смета №{{.Estimate.Number}} · версия v{{.Version.VersionNumber}}{{if .IsCurrentVersion}} · текущая{{end}}</h2>
         <p>Станок: {{.Result.Equipment.Name}}</p>
         <p>Модель: {{.Result.Equipment.EquipmentModel.Manufacturer}} {{.Result.Equipment.EquipmentModel.Model}}</p>
+        <p>Ревизия детали: <a href="/revisions/{{.Version.PartRevisionID}}">#{{.Revision.RevisionNumber}}</a></p>
+        {{if gt .AutomaticMachineTimeMinutes 0.0}}
+        <p>Автоматическое время: {{printf "%.2f мин/деталь" .AutomaticMachineTimeMinutes}}</p>
+        {{end}}
+        {{if .HasAutomaticMachineTime}}
+        <p>Использованное время: <strong>{{printf "%.2f мин/деталь" .UsedMachineTimeMinutes}}</strong></p>
+        {{end}}
+        {{if eq .MachineTimeSource "user_override"}}
+        <p>Время обработки введено вручную.{{if .MachineTimeReason}} Источник: {{.MachineTimeReason}}{{end}}</p>
+        {{else if eq .MachineTimeSource "ai_override"}}
+        <p class="notice warning">Корректировка машинного времени. Причина: {{.MachineTimeReason}}</p>
+        {{end}}
         {{if .Result.CostBreakdown}}
         {{if .Result.CostBreakdown.EquipmentEconomicsApplied}}
-        <p>Для стоимости станка применена детальная модель; ставка {{printf "%.2f %s/ч" .Version.HourlyRate .Version.Currency}} сохранена справочно и не суммируется.</p>
+        <p>Расходы на станок рассчитаны по детальной модели; ставка {{money .Version.HourlyRate .Version.Currency}}/ч сохранена справочно.</p>
         {{else}}
-        <p>Применённая legacy-ставка станка: <strong>{{printf "%.2f %s/ч" .Version.HourlyRate .Version.Currency}}</strong></p>
+        <p>Применённая ставка станка: <strong>{{money .Version.HourlyRate .Version.Currency}}/ч</strong></p>
         {{end}}
-        {{else}}
-        <p>Ставка на момент расчёта: <strong>{{printf "%.2f %s/ч" .Version.HourlyRate .Version.Currency}}</strong></p>
         {{end}}
-        <p>Время обработки: <strong>{{printf "%.2f мин" .Result.TotalMachineTime}}</strong></p>
-        <p>Стоимость станка: <strong>{{printf "%.2f %s" .Version.MachineCost .Version.Currency}}</strong></p>
-        <p>Наценка: {{printf "%.2f%%" .Version.MarkupPercent}}; итог: <strong>{{printf "%.2f %s" .Version.FinalPrice .Version.Currency}}</strong></p>
-        <p>Ревизия детали: <a href="/revisions/{{.Version.PartRevisionID}}">{{.Version.PartRevisionID}}</a></p>
       </section>
+      {{if .HasPreviousVersion}}
+      <section class="card">
+        <h2>Изменения относительно v{{.PreviousVersionNumber}}</h2>
+        {{if .VersionChanges}}
+        <div class="table-wrap"><table><thead><tr><th>Параметр</th><th>Было</th><th>Стало</th><th>Причина</th></tr></thead><tbody>
+          {{range .VersionChanges}}<tr><td>{{.Name}}</td><td>{{.Before}}</td><td>{{.After}}</td><td>{{.Reason}}</td></tr>{{end}}
+        </tbody></table></div>
+        {{else}}<p>Параметры не изменились.</p>{{end}}
+      </section>
+      {{else}}
+      <section class="card"><h2>Первоначальный расчёт</h2><p>Это первая сохранённая версия сметы.</p></section>
+      {{end}}
       {{if .Result.CostBreakdown}}
       <section class="card">
-        <h2>Производственная себестоимость</h2>
-        <p>Партия: {{.Result.CostBreakdown.Quantity}} шт.; себестоимость партии: <strong>{{printf "%.2f %s" .Result.CostBreakdown.TotalCost .Result.CostBreakdown.Currency}}</strong></p>
-        <p>Себестоимость изделия: {{printf "%.2f %s" .Result.CostBreakdown.PerPieceCost .Result.CostBreakdown.Currency}}; цена изделия: {{printf "%.2f %s" .Result.CostBreakdown.SellingPricePerPiece .Result.CostBreakdown.Currency}}</p>
-        <p>Итого по станку: <strong>{{printf "%.2f %s" .Result.CostBreakdown.MachineCost .Result.CostBreakdown.Currency}}</strong></p>
-        <div class="table-wrap"><table><thead><tr><th>Статья</th><th>Стоимость партии</th></tr></thead><tbody>
-          <tr><td>Материал ({{.Result.CostBreakdown.MaterialPriceSource}})</td><td>{{printf "%.2f" .Result.CostBreakdown.MaterialCost}}</td></tr>
-          {{if .Result.CostBreakdown.EquipmentEconomicsApplied}}
-          <tr><td>Амортизация станка</td><td>{{printf "%.2f" .Result.CostBreakdown.DepreciationCost}}</td></tr>
-          <tr><td>Электроэнергия станка</td><td>{{printf "%.2f" .Result.CostBreakdown.ElectricityCost}}</td></tr>
-          <tr><td>Обслуживание станка</td><td>{{printf "%.2f" .Result.CostBreakdown.MaintenanceCost}}</td></tr>
-          <tr><td>Ремонт станка</td><td>{{printf "%.2f" .Result.CostBreakdown.RepairCost}}</td></tr>
-          <tr><td>Прочие расходы станка</td><td>{{printf "%.2f" .Result.CostBreakdown.OtherEquipmentCost}}</td></tr>
-          {{else}}
-          <tr><td>Станок по legacy-ставке</td><td>{{printf "%.2f" .Result.CostBreakdown.MachineCost}}</td></tr>
-          {{end}}
-          <tr><td>Оператор</td><td>{{printf "%.2f" .Result.CostBreakdown.OperatorCost}}</td></tr>
-          <tr><td>Программирование</td><td>{{printf "%.2f" .Result.CostBreakdown.ProgrammingCost}}</td></tr>
-          <tr><td>Инструмент</td><td>{{printf "%.2f" .Result.CostBreakdown.ToolingCost}}</td></tr>
-          <tr><td>Наладка</td><td>{{printf "%.2f" .Result.CostBreakdown.SetupCost}}</td></tr>
-          <tr><td>Аренда</td><td>{{printf "%.2f" .Result.CostBreakdown.RentCost}}</td></tr>
-          <tr><td>Коммунальные расходы</td><td>{{printf "%.2f" .Result.CostBreakdown.UtilitiesCost}}</td></tr>
-          <tr><td>Прочие накладные расходы</td><td>{{printf "%.2f" .Result.CostBreakdown.OtherOverheadCost}}</td></tr>
-          <tr><td>Прибыль</td><td>{{printf "%.2f" .Result.CostBreakdown.Profit}}</td></tr>
-          <tr><th>Цена продажи</th><th>{{printf "%.2f" .Result.CostBreakdown.SellingPrice}} {{.Result.CostBreakdown.Currency}}</th></tr>
-        </tbody></table></div>
-        {{if .Result.CostBreakdown.Warnings}}<h3>Не включено / требует настройки</h3><ul>{{range .Result.CostBreakdown.Warnings}}<li>{{.}}</li>{{end}}</ul>{{end}}
+        <h2>Расчёт себестоимости</h2>
+        <p><strong>Количество:</strong> {{.Result.CostBreakdown.Quantity}} шт.</p>
+        <p><strong>Материал:</strong> {{if .MaterialName}}{{.MaterialName}}{{else}}не указан{{end}}</p>
+        <p><strong>Источник цены:</strong> {{.MaterialPriceLabel}}</p>
+        {{if .MaterialPriceNote}}<p class="muted">{{.MaterialPriceNote}}</p>{{end}}
+        <p><strong>Наценка:</strong> {{printf "%.2f" .Result.CostBreakdown.MarkupPercent}}%</p>
+        {{template "cost-table" .}}
+        {{template "cost-totals" .}}
+        {{template "tool-supply" .Result.CostBreakdown}}
       </section>
+      {{end}}
+      {{if and .Result.CostBreakdown .Result.CostBreakdown.Warnings}}
+      <section class="card"><h2>⚠ Требует настройки</h2><ul>{{range .CostWarnings}}<li>{{.}}</li>{{end}}</ul></section>
       {{end}}
       <section class="card">
         <h2>Сохранённые операции</h2>
@@ -221,9 +259,10 @@
           {{else}}<tr><td colspan="4" class="muted">Операции отсутствуют в сохранённом снимке.</td></tr>{{end}}
         </tbody></table></div>
       </section>
-      <details class="card"><summary>Снимок входных данных</summary><pre>{{printf "%s" .Version.InputSnapshot}}</pre></details>
-      <details class="card"><summary>Снимок настроек</summary><pre>{{printf "%s" .Version.SettingsSnapshot}}</pre></details>
-      <details class="card"><summary>Полный результат расчёта</summary><pre>{{printf "%s" .Version.ResultSnapshot}}</pre></details>
+      <section class="card">
+        <h2>История версий</h2>
+        {{range .Versions}}<p><a href="/estimates/{{.EstimateID}}/versions/{{.ID}}">v{{.VersionNumber}}</a>{{if eq $.Estimate.CurrentVersionID .ID}} · текущая{{end}} · {{.CreatedAt.Format "02.01.2006 15:04"}}</p>{{end}}
+      </section>
       {{end}}
     </main>
   </div>

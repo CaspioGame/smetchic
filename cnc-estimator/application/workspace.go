@@ -99,6 +99,16 @@ func (service *Service) ListConsumables(ctx context.Context, companyID string) (
 	return service.repository.ListConsumables(ctx, companyID)
 }
 
+func (service *Service) ListGlobalTools(ctx context.Context) ([]model.Consumable, error) {
+	repository, ok := service.repository.(interface {
+		ListGlobalTools(context.Context) ([]model.Consumable, error)
+	})
+	if !ok {
+		return nil, nil
+	}
+	return repository.ListGlobalTools(ctx)
+}
+
 func (service *Service) SaveConsumable(ctx context.Context, companyID string, item model.Consumable) (model.Consumable, error) {
 	if item.ID == "" {
 		id, err := newID("consumable")

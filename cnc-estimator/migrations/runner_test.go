@@ -22,8 +22,8 @@ func TestMigrationFilesAreOrderedAndVersioned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 6 {
-		t.Fatalf("migration count = %d, want 6", len(items))
+	if len(items) != 10 {
+		t.Fatalf("migration count = %d, want 10", len(items))
 	}
 	for index, item := range items {
 		if item.version != index+1 {
@@ -59,15 +59,15 @@ func TestMigrationRunnerOnEmptyAndExistingDatabases(t *testing.T) {
 			t.Fatalf("concurrent migrations failed: %v", err)
 		}
 	}
-	assertMigrationHistory(t, ctx, db, 6)
+	assertMigrationHistory(t, ctx, db, 10)
 
 	var output bytes.Buffer
 	results, err := Apply(ctx, db.DB, &output)
 	if err != nil {
 		t.Fatalf("re-run migrations: %v", err)
 	}
-	if len(results) != 6 {
-		t.Fatalf("re-run results count = %d, want 6", len(results))
+	if len(results) != 10 {
+		t.Fatalf("re-run results count = %d, want 10", len(results))
 	}
 	for _, result := range results {
 		if result.Status != "already applied" {
@@ -130,8 +130,8 @@ func TestMigrationRunnerBootstrapsManuallyAppliedSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("bootstrap manually migrated database: %v", err)
 	}
-	if len(results) != 6 {
-		t.Fatalf("bootstrap result count = %d, want 6", len(results))
+	if len(results) != 10 {
+		t.Fatalf("bootstrap result count = %d, want 10", len(results))
 	}
 	for _, result := range results {
 		if (result.Version == 3 || result.Version == 5) && result.Status != "applied" {
@@ -141,7 +141,7 @@ func TestMigrationRunnerBootstrapsManuallyAppliedSchema(t *testing.T) {
 			t.Errorf("pre-existing migration %03d status = %q", result.Version, result.Status)
 		}
 	}
-	assertMigrationHistory(t, ctx, db, 6)
+	assertMigrationHistory(t, ctx, db, 10)
 
 	var companyName string
 	if err := db.QueryRowContext(ctx, `SELECT name FROM companies WHERE id = 'preserved-company'`).Scan(&companyName); err != nil {

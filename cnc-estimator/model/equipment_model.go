@@ -29,6 +29,7 @@ type EquipmentModel struct {
 	MaxRPM       float64
 	SpindlePower float64
 	MaxFeed      float64
+	Description  string `json:",omitempty"`
 }
 
 func (equipmentModel EquipmentModel) Validate() error {

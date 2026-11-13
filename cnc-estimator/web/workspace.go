@@ -26,6 +26,7 @@ type consumableForm struct {
 	StockQuantity    string
 	UnitPrice        string
 	ResourceMinutes  string
+	UsedMinutes      string
 	ResourceUnits    string
 	ResourceUnitName string
 	Currency         string
@@ -65,6 +66,7 @@ type workspacePage struct {
 	Users                  []application.CompanyUserRecord
 	EquipmentRows          []equipmentListRow
 	Equipment              []model.Equipment
+	EquipmentNames         map[string]string
 	EquipmentModel         []model.EquipmentModel
 	Materials              []model.Material
 	StockBlanks            []model.StockBlank
@@ -246,6 +248,11 @@ func (s *Server) serveWorkspace(w http.ResponseWriter, r *http.Request) bool {
 			return s.workspaceMethodNotAllowed(w, r)
 		}
 		s.renderGlobalMaterials(w, r)
+	case r.URL.Path == "/catalog/consumables":
+		if r.Method != http.MethodGet {
+			return s.workspaceMethodNotAllowed(w, r)
+		}
+		s.renderGlobalConsumables(w, r)
 	case strings.HasPrefix(r.URL.Path, "/catalog/materials/"):
 		if r.Method != http.MethodGet {
 			return s.workspaceMethodNotAllowed(w, r)
@@ -383,6 +390,10 @@ func (s *Server) loadEconomicsWorkspace(r *http.Request) (workspacePage, error) 
 	}
 	page := s.workspaceBase(r, "Производственная экономика", "economics", "economics")
 	page.ProductionEconomics, page.Equipment = economics, equipment
+	page.EquipmentNames = make(map[string]string, len(equipment))
+	for _, item := range equipment {
+		page.EquipmentNames[item.ID] = item.Name
+	}
 	page.Materials, page.StockBlanks = materials, stockBlanks
 	return page, nil
 }
@@ -971,6 +982,10 @@ func (s *Server) renderConsumableWorkspaceForm(w http.ResponseWriter, r *http.Re
 		for _, item := range items {
 			if item.ID == id {
 				page.Title = "Редактировать фрезу"
+				usedMinutes := make([]string, 0, len(item.UsedMinutesByUnit))
+				for _, used := range item.UsedMinutesByUnit {
+					usedMinutes = append(usedMinutes, formatNumber(used))
+				}
 				page.ConsumableForm = consumableForm{
 					ID: item.ID, Name: item.Name, Manufacturer: item.Manufacturer, ToolType: item.ToolType,
 					DiameterMm: formatNumber(item.DiameterMm), FluteCount: strconv.Itoa(item.FluteCount),
@@ -978,6 +993,7 @@ func (s *Server) renderConsumableWorkspaceForm(w http.ResponseWriter, r *http.Re
 					StockQuantity: strconv.Itoa(item.StockQuantity), UnitPrice: formatNumber(item.UnitPrice), Currency: item.Currency,
 					ResourceMinutes: formatNumber(item.ResourceMinutes), ResourceUnits: formatNumber(item.ResourceUnits),
 					ResourceUnitName: item.ResourceUnitName,
+					UsedMinutes:      strings.Join(usedMinutes, " "),
 				}
 				found = true
 				break
@@ -1003,6 +1019,7 @@ func (s *Server) saveConsumableWorkspace(w http.ResponseWriter, r *http.Request)
 		LengthMm: strings.TrimSpace(r.FormValue("length_mm")), StockQuantity: strings.TrimSpace(r.FormValue("stock_quantity")),
 		UnitPrice: strings.TrimSpace(r.FormValue("unit_price")), Currency: strings.ToUpper(strings.TrimSpace(r.FormValue("currency"))),
 		ResourceMinutes:  strings.TrimSpace(r.FormValue("resource_minutes")),
+		UsedMinutes:      strings.TrimSpace(r.FormValue("used_minutes")),
 		ResourceUnits:    strings.TrimSpace(r.FormValue("resource_units")),
 		ResourceUnitName: strings.TrimSpace(r.FormValue("resource_unit_name")),
 	}
@@ -1041,13 +1058,23 @@ func (s *Server) saveConsumableWorkspace(w http.ResponseWriter, r *http.Request)
 		s.renderConsumableError(w, r, form, err.Error())
 		return
 	}
+	var usedMinutes []float64
+	for _, line := range strings.Fields(form.UsedMinutes) {
+		used, parseErr := parseRequiredNumber("Наработка фрезы", line)
+		if parseErr != nil {
+			s.renderConsumableError(w, r, form, parseErr.Error())
+			return
+		}
+		usedMinutes = append(usedMinutes, used)
+	}
 	_, err = s.lifecycle.SaveConsumable(r.Context(), companyIDForRequest(s, r), model.Consumable{
 		ID: form.ID, CompanyID: companyIDForRequest(s, r), Category: model.ConsumableCutter,
 		Name: form.Name, Manufacturer: form.Manufacturer, ToolType: form.ToolType,
 		DiameterMm: diameter, FluteCount: flutes, ToolMaterial: form.ToolMaterial,
 		Coating: form.Coating, LengthMm: length, StockQuantity: quantity,
 		UnitPrice: price, ResourceMinutes: resourceMinutes, ResourceUnits: resourceUnits,
-		ResourceUnitName: form.ResourceUnitName, Currency: form.Currency, Attributes: json.RawMessage(`{}`),
+		UsedMinutesByUnit: usedMinutes,
+		ResourceUnitName:  form.ResourceUnitName, Currency: form.Currency, Attributes: json.RawMessage(`{}`),
 	})
 	if err != nil {
 		s.renderConsumableError(w, r, form, applicationPublicError(err))
@@ -1085,6 +1112,17 @@ func (s *Server) renderGlobalEquipment(w http.ResponseWriter, r *http.Request) {
 	}
 	page := s.workspaceBase(r, "Общая база оборудования", "catalog-equipment", "catalog-equipment")
 	page.EquipmentModel = items
+	s.render(w, r, "workspace.html", http.StatusOK, page)
+}
+
+func (s *Server) renderGlobalConsumables(w http.ResponseWriter, r *http.Request) {
+	items, err := s.lifecycle.ListGlobalTools(r.Context())
+	if err != nil {
+		s.workspaceInternalError(w, "list global consumables", err)
+		return
+	}
+	page := s.workspaceBase(r, "Общая база расходников", "catalog-consumables", "catalog-consumables")
+	page.Consumables = items
 	s.render(w, r, "workspace.html", http.StatusOK, page)
 }
 

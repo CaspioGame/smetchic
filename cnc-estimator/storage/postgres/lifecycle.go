@@ -411,18 +411,17 @@ func (repository *LifecycleRepository) ListPartRevisions(ctx context.Context, co
 }
 
 func (repository *LifecycleRepository) ListEstimatesForRevision(ctx context.Context, companyID, revisionID string) ([]application.EstimateRecord, error) {
-	rows, err := repository.db.QueryContext(ctx, `
-		SELECT id, company_id, part_revision_id, name, created_at, updated_at
-		FROM estimates WHERE company_id = $1 AND part_revision_id = $2
-		ORDER BY updated_at DESC, id`, companyID, revisionID)
+	rows, err := repository.db.QueryContext(ctx, estimateSelect+`
+		WHERE estimates.company_id = $1 AND estimates.part_revision_id = $2
+		ORDER BY estimates.updated_at DESC, estimates.id`, companyID, revisionID)
 	if err != nil {
 		return nil, fmt.Errorf("list estimates for revision: %w", err)
 	}
 	defer rows.Close()
 	estimates := make([]application.EstimateRecord, 0)
 	for rows.Next() {
-		var estimate application.EstimateRecord
-		if err := rows.Scan(&estimate.ID, &estimate.CompanyID, &estimate.PartRevisionID, &estimate.Name, &estimate.CreatedAt, &estimate.UpdatedAt); err != nil {
+		estimate, err := scanEstimate(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan estimate: %w", err)
 		}
 		estimates = append(estimates, estimate)
@@ -440,27 +439,90 @@ func (repository *LifecycleRepository) CreateEstimateVersion(ctx context.Context
 	}
 	defer tx.Rollback()
 
-	var revisionID string
+	var partID, projectID string
 	if err := tx.QueryRowContext(ctx, `
-		SELECT id FROM part_revisions
-		WHERE company_id = $1 AND id = $2 FOR UPDATE`,
-		estimate.CompanyID, estimate.PartRevisionID).Scan(&revisionID); err != nil {
+		SELECT parts.id, parts.project_id
+		FROM part_revisions
+		JOIN parts ON parts.company_id = part_revisions.company_id AND parts.id = part_revisions.part_id
+		WHERE part_revisions.company_id = $1 AND part_revisions.id = $2 FOR UPDATE OF part_revisions`,
+		estimate.CompanyID, estimate.PartRevisionID).Scan(&partID, &projectID); err != nil {
 		return application.EstimateRecord{}, application.EstimateVersionRecord{}, notFound("find estimate revision", err)
 	}
-	err = tx.QueryRowContext(ctx, `
-		SELECT id, company_id, part_revision_id, name, created_at, updated_at
-		FROM estimates
-		WHERE company_id = $1 AND part_revision_id = $2 AND name = $3
-		FOR UPDATE`,
-		estimate.CompanyID, estimate.PartRevisionID, estimate.Name).
-		Scan(&estimate.ID, &estimate.CompanyID, &estimate.PartRevisionID, &estimate.Name, &estimate.CreatedAt, &estimate.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	estimate.PartID, estimate.ProjectID = partID, projectID
+	if estimate.Quantity <= 0 {
+		estimate.Quantity = 1
+	}
+	candidateEstimateID := estimate.ID
+	if estimate.ID != "" {
+		var existingRevision string
 		err = tx.QueryRowContext(ctx, `
-			INSERT INTO estimates (id, company_id, part_revision_id, name)
-			VALUES ($1, $2, $3, $4)
-			RETURNING created_at, updated_at`,
-			estimate.ID, estimate.CompanyID, estimate.PartRevisionID, estimate.Name).
-			Scan(&estimate.CreatedAt, &estimate.UpdatedAt)
+			SELECT part_revision_id FROM estimates
+			WHERE company_id = $1 AND id = $2 FOR UPDATE`,
+			estimate.CompanyID, estimate.ID).Scan(&existingRevision)
+		if err == nil && existingRevision != estimate.PartRevisionID {
+			return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("estimate revision cannot be changed")
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("lock working estimate: %w", err)
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			estimate.ID = ""
+		}
+	}
+	if estimate.ID == "" {
+		err = tx.QueryRowContext(ctx, `
+			SELECT id FROM estimates
+			WHERE company_id = $1 AND part_revision_id = $2 AND name = $3
+			FOR UPDATE`, estimate.CompanyID, estimate.PartRevisionID, estimate.Name).Scan(&estimate.ID)
+		if errors.Is(err, sql.ErrNoRows) {
+			number, numberErr := allocateEstimateNumber(ctx, tx, estimate.CompanyID)
+			if numberErr != nil {
+				return application.EstimateRecord{}, application.EstimateVersionRecord{}, numberErr
+			}
+			if len(estimate.WorkingInput) == 0 {
+				estimate.WorkingInput = []byte(`{}`)
+			}
+			estimate.ID = candidateEstimateID
+			err = tx.QueryRowContext(ctx, `
+				INSERT INTO estimates (
+					id, company_id, part_revision_id, name, number, project_id, part_id,
+					order_id, quantity, status, working_input
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, 'draft', $10::jsonb)
+				RETURNING created_at, updated_at`,
+				estimate.ID, estimate.CompanyID, estimate.PartRevisionID, estimate.Name,
+				number, projectID, partID, estimate.OrderID, estimate.Quantity,
+				string(estimate.WorkingInput)).Scan(&estimate.CreatedAt, &estimate.UpdatedAt)
+			if err != nil {
+				return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("create working estimate: %w", err)
+			}
+			estimate.Number = number
+		} else if err != nil {
+			return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("find estimate: %w", err)
+		} else {
+			if len(estimate.WorkingInput) != 0 {
+				if _, err := tx.ExecContext(ctx, `
+					UPDATE estimates SET order_id = NULLIF($3, ''), quantity = $4,
+						working_input = $5::jsonb, status = 'draft', updated_at = now()
+					WHERE company_id = $1 AND id = $2`,
+					estimate.CompanyID, estimate.ID, estimate.OrderID, estimate.Quantity,
+					string(estimate.WorkingInput)); err != nil {
+					return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("update existing estimate inputs: %w", err)
+				}
+			}
+		}
+	} else {
+		if len(estimate.WorkingInput) == 0 {
+			estimate.WorkingInput = []byte(`{}`)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE estimates
+			SET name = $3, order_id = NULLIF($4, ''), quantity = $5,
+			    working_input = $6::jsonb, status = 'draft', updated_at = now()
+			WHERE company_id = $1 AND id = $2`,
+			estimate.CompanyID, estimate.ID, estimate.Name, estimate.OrderID,
+			estimate.Quantity, string(estimate.WorkingInput)); err != nil {
+			return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("update working estimate before version: %w", err)
+		}
 	}
 	if err != nil {
 		return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("find or create estimate: %w", err)
@@ -491,23 +553,25 @@ func (repository *LifecycleRepository) CreateEstimateVersion(ctx context.Context
 		return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("save estimate version: %w", err)
 	}
 	if err := tx.QueryRowContext(ctx, `
-		UPDATE estimates SET updated_at = now()
+		UPDATE estimates
+		SET current_version_id = $3, status = 'calculated', updated_at = now()
 		WHERE company_id = $1 AND id = $2
-		RETURNING updated_at`, estimate.CompanyID, estimate.ID).Scan(&estimate.UpdatedAt); err != nil {
+		RETURNING updated_at`, estimate.CompanyID, estimate.ID, version.ID).Scan(&estimate.UpdatedAt); err != nil {
 		return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("update estimate timestamp: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("commit estimate version: %w", err)
 	}
+	estimate, err = repository.GetEstimate(ctx, estimate.CompanyID, estimate.ID)
+	if err != nil {
+		return application.EstimateRecord{}, application.EstimateVersionRecord{}, fmt.Errorf("read saved estimate: %w", err)
+	}
 	return estimate, version, nil
 }
 
 func (repository *LifecycleRepository) GetEstimate(ctx context.Context, companyID, estimateID string) (application.EstimateRecord, error) {
-	var estimate application.EstimateRecord
-	err := repository.db.QueryRowContext(ctx, `
-		SELECT id, company_id, part_revision_id, name, created_at, updated_at
-		FROM estimates WHERE company_id = $1 AND id = $2`, companyID, estimateID).
-		Scan(&estimate.ID, &estimate.CompanyID, &estimate.PartRevisionID, &estimate.Name, &estimate.CreatedAt, &estimate.UpdatedAt)
+	estimate, err := scanEstimate(repository.db.QueryRowContext(ctx,
+		estimateSelect+` WHERE estimates.company_id = $1 AND estimates.id = $2`, companyID, estimateID))
 	if err != nil {
 		return application.EstimateRecord{}, notFound("get estimate", err)
 	}

@@ -1,0 +1,37 @@
+{{define "cost-table"}}
+<div class="table-wrap">
+  <table class="cost-table">
+    <thead><tr><th>Статья</th><th>На партию</th><th>На 1 деталь</th></tr></thead>
+    <tbody>
+      {{range .CostItems}}
+      {{$explanation := index $.CostCalculations .Name}}
+      <tr><td colspan="3">
+        <details class="cost-details">
+          <summary>
+            <span class="cost-name">{{.Name}} <span class="cost-chevron" aria-hidden="true">▾</span></span>
+            <span>{{money .BatchCost $.Result.CostBreakdown.Currency}}</span>
+            <span>{{money .PerPieceCost $.Result.CostBreakdown.Currency}}</span>
+          </summary>
+          <div class="cost-explanation">
+            <strong>На партию</strong>
+            {{range $explanation.Batch}}
+            <p class="cost-formula">{{.Formula}}</p>
+            <p class="cost-substitution">{{.Values}}</p>
+            {{end}}
+            {{if $explanation.Note}}<p class="muted">{{$explanation.Note}}</p>{{end}}
+            {{with $explanation.PerPiece}}
+            {{if .Formula}}
+            <strong>На 1 деталь</strong>
+            <p class="cost-formula">{{.Formula}}</p>
+            <p class="cost-substitution">{{.Values}}</p>
+            {{end}}
+            {{end}}
+          </div>
+        </details>
+      </td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+<p class="muted">Формулы используют данные сохранённой версии. Денежные результаты округлены до копеек при отображении.</p>
+{{end}}

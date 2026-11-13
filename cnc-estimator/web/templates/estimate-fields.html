@@ -1,0 +1,29 @@
+{{define "estimate-fields"}}
+<fieldset>
+  <legend>Основные сведения</legend>
+          <label for="estimate-name">Название</label><input id="estimate-name" name="name" value="{{index .EstimateFormValues "name"}}" required>
+          <label for="estimate-order">Заказ (необязательно)</label><select id="estimate-order" name="order_id"><option value="">Не выбран</option>
+            {{range .Orders}}<option value="{{.ID}}" {{if eq (index $.EstimateFormValues "order_id") .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+          </select>
+          <div class="grid">
+            <div><label for="estimate-quantity">Количество, шт.</label><input id="estimate-quantity" name="quantity" type="number" min="1" step="1" value="{{index .EstimateFormValues "quantity"}}" required></div>
+            <div><label for="estimate-equipment">Оборудование</label><select id="estimate-equipment" name="equipment_id" required><option value="">Выберите</option>{{range .Equipment}}<option value="{{.ID}}" {{if eq (index $.EstimateFormValues "equipment_id") .ID}}selected{{end}}>{{.Name}} — {{money .MachineRatePerHour $.Currency}}/ч</option>{{end}}</select></div>
+          </div>
+</fieldset>
+<fieldset>
+  <legend>Общие параметры расчёта</legend>
+          <label for="estimate-machine-time">Время обработки одной детали, мин.</label>
+          <input id="estimate-machine-time" name="machine_time_hours" type="number" min="0" step="any" value="{{index .EstimateFormValues "machine_time_hours"}}" required>
+          <label for="machine-time-reason">Откуда взято время (например, Fusion или замер)</label>
+          <input id="machine-time-reason" name="machine_time_reason" value="{{index .EstimateFormValues "machine_time_reason"}}">
+          <div class="grid">
+            <div><label for="estimate-markup">Наценка, %</label><input id="estimate-markup" name="markup_percent" type="number" min="0" step="any" value="{{index .EstimateFormValues "markup_percent"}}" required></div>
+            <div><label for="markup-source">Источник наценки</label><select id="markup-source" name="markup_source">
+              <option value="company_data" {{if eq (index .EstimateFormValues "markup_source") "company_data"}}selected{{end}}>Настройки компании</option>
+              <option value="user_override" {{if eq (index .EstimateFormValues "markup_source") "user_override"}}selected{{end}}>Ручная корректировка</option>
+            </select></div>
+          </div>
+          <label for="markup-reason">Причина ручной наценки (если выбрана)</label><input id="markup-reason" name="markup_reason" value="{{index .EstimateFormValues "markup_reason"}}">
+</fieldset>
+{{template "estimate-module-fields" .}}
+{{end}}

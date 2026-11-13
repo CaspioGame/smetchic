@@ -1,0 +1,73 @@
+{{define "estimate-chat"}}
+<div class="chat-workspace">
+<aside class="chat-dialogs" aria-label="Диалоги">
+  <a class="button" href="/chat">Новый чат</a>
+  {{range .Dialogs}}
+  <a class="chat-dialog{{if eq .ID $.DialogID}} selected{{end}}" href="/chat?dialog_id={{.ID}}">{{.Title}}</a>
+  {{else}}<p class="muted">Здесь появятся ваши диалоги.</p>{{end}}
+</aside>
+<section class="chat-panel" aria-label="Чат">
+  <header class="chat-header">
+    <h2>{{if .Estimate.Name}}{{.Estimate.Name}}{{else}}Помощник по проектам и сметам{{end}}</h2>
+    {{if .Project.Name}}<span>Проект «{{.Project.Name}}»</span>{{end}}
+    {{if .ChatEstimateID}}<a href="/estimates/{{.ChatEstimateID}}">Открыть смету</a>{{end}}
+  </header>
+  <div class="chat-history" id="chat-history" role="log" tabindex="0" aria-label="Переписка">
+  {{range .ChatTurns}}
+    <div class="chat-bubble chat-bubble-user"><strong>Вы</strong><p>{{.Message}}</p></div>
+    <div class="chat-bubble"><strong>Агент</strong><p>{{.Reply}}</p>
+      {{if .Changes}}<ul>{{range .Changes}}<li>{{.}}</li>{{end}}</ul>{{end}}
+      {{if .Pending}}
+      <form method="post" action="/chat">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <input type="hidden" name="dialog_id" value="{{$.DialogID}}">
+        <input type="hidden" name="dialog_revision" value="{{$.DialogRevision}}">
+        <input type="hidden" name="confirm" value="{{.ID}}">
+        <button type="submit" class="secondary">Подтвердить действие</button>
+      </form>
+      {{end}}
+    </div>
+  {{else}}
+    <p class="chat-empty muted">Напишите, например, «Создай проект Корпус» или попросите открыть существующую смету.</p>
+  {{end}}
+  </div>
+  <form method="post" action="/chat" class="chat-composer">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="estimate_id" value="{{.ChatEstimateID}}">
+    <input type="hidden" name="dialog_id" value="{{.DialogID}}">
+    <input type="hidden" name="dialog_revision" value="{{.DialogRevision}}">
+    <label for="chat-message" class="chat-sr-only">Сообщение</label>
+    <textarea id="chat-message" name="assistant_prompt" rows="1" maxlength="2000" required placeholder="Напишите сообщение…"></textarea>
+    <button type="submit">Отправить</button>
+  </form>
+</section>
+</div>
+<script>
+  (() => {
+    const history = document.getElementById("chat-history");
+    const message = document.getElementById("chat-message");
+    const form = message.form;
+    const send = form.querySelector("button[type=submit]");
+    function fitMessage() {
+      const atEnd = history.scrollHeight - history.scrollTop - history.clientHeight < 8;
+      message.style.height = "auto";
+      const borders = message.offsetHeight - message.clientHeight;
+      message.style.height = `${message.scrollHeight + borders}px`;
+      if (atEnd) history.scrollTop = history.scrollHeight;
+    }
+    message.addEventListener("input", fitMessage);
+    window.addEventListener("resize", fitMessage);
+    form.addEventListener("submit", () => {
+      send.disabled = true;
+      send.textContent = "Ждём ответ…";
+    });
+    window.addEventListener("pageshow", () => {
+      send.disabled = false;
+      send.textContent = "Отправить";
+      fitMessage();
+    });
+    fitMessage();
+    history.scrollTop = history.scrollHeight;
+  })();
+</script>
+{{end}}

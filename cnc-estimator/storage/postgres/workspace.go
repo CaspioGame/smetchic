@@ -93,7 +93,7 @@ func (repository *LifecycleRepository) ListCompanyUsers(ctx context.Context, com
 func (repository *LifecycleRepository) ListEquipmentModels(ctx context.Context) ([]model.EquipmentModel, error) {
 	rows, err := repository.db.QueryContext(ctx, `
 		SELECT id, type, manufacturer, name, work_area_x_mm, work_area_y_mm, work_area_z_mm,
-		       max_rpm, spindle_power_kw, max_feed_mm_min
+		       max_rpm, spindle_power_kw, max_feed_mm_min, description
 		FROM equipment_models ORDER BY manufacturer, name`)
 	if err != nil {
 		return nil, fmt.Errorf("list global equipment models: %w", err)
@@ -105,7 +105,7 @@ func (repository *LifecycleRepository) ListEquipmentModels(ctx context.Context) 
 		if err := rows.Scan(
 			&item.ID, &item.Type, &item.Manufacturer, &item.Model,
 			&item.WorkAreaX, &item.WorkAreaY, &item.WorkAreaZ, &item.MaxRPM,
-			&item.SpindlePower, &item.MaxFeed,
+			&item.SpindlePower, &item.MaxFeed, &item.Description,
 		); err != nil {
 			return nil, fmt.Errorf("scan global equipment model: %w", err)
 		}
@@ -255,6 +255,13 @@ func (repository *LifecycleRepository) ListConsumables(ctx context.Context, comp
 			return nil, fmt.Errorf("scan company consumable: %w", err)
 		}
 		item.Attributes = append(item.Attributes[:0], attributes...)
+		var stock struct {
+			UsedMinutesByUnit []float64 `json:"used_minutes_by_unit"`
+		}
+		if err := json.Unmarshal(attributes, &stock); err != nil {
+			return nil, fmt.Errorf("decode consumable usage: %w", err)
+		}
+		item.UsedMinutesByUnit = stock.UsedMinutesByUnit
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -264,6 +271,10 @@ func (repository *LifecycleRepository) ListConsumables(ctx context.Context, comp
 }
 
 func (repository *LifecycleRepository) SaveConsumable(ctx context.Context, item model.Consumable) error {
+	usage, err := json.Marshal(item.UsedMinutesByUnit)
+	if err != nil {
+		return err
+	}
 	result, err := repository.db.ExecContext(ctx, `
 		INSERT INTO consumables (
 			id, company_id, category, name, manufacturer, tool_type, diameter_mm,
@@ -271,7 +282,8 @@ func (repository *LifecycleRepository) SaveConsumable(ctx context.Context, item 
 			unit_price, resource_minutes, resource_units, resource_unit_name, currency, attributes
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, NULLIF($7, 0), NULLIF($8, 0), $9, $10,
-			NULLIF($11, 0), $12, $13, $14, $15, $16, $17, $18::jsonb
+			NULLIF($11, 0), $12, $13, $14, $15, $16, $17,
+			$18::jsonb || jsonb_build_object('used_minutes_by_unit', $19::jsonb)
 		)
 		ON CONFLICT (id) DO UPDATE SET
 			category = EXCLUDED.category, name = EXCLUDED.name,
@@ -282,12 +294,12 @@ func (repository *LifecycleRepository) SaveConsumable(ctx context.Context, item 
 			unit_price = EXCLUDED.unit_price, currency = EXCLUDED.currency,
 			resource_minutes = EXCLUDED.resource_minutes, resource_units = EXCLUDED.resource_units,
 			resource_unit_name = EXCLUDED.resource_unit_name,
-			attributes = EXCLUDED.attributes, updated_at = now()
+			attributes = consumables.attributes || EXCLUDED.attributes, updated_at = now()
 		WHERE consumables.company_id = EXCLUDED.company_id`,
 		item.ID, item.CompanyID, item.Category, item.Name, item.Manufacturer, item.ToolType,
 		item.DiameterMm, item.FluteCount, item.ToolMaterial, item.Coating, item.LengthMm,
 		item.StockQuantity, item.UnitPrice, item.ResourceMinutes, item.ResourceUnits,
-		item.ResourceUnitName, item.Currency, string(item.Attributes))
+		item.ResourceUnitName, item.Currency, string(item.Attributes), string(usage))
 	if err != nil {
 		return fmt.Errorf("save company consumable: %w", err)
 	}

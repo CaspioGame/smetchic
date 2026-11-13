@@ -29,7 +29,7 @@ func (repository *workspaceTestRepository) GetEquipment(_ context.Context, compa
 }
 
 func (repository *workspaceTestRepository) ListEquipment(context.Context, string) ([]model.Equipment, error) {
-	return nil, nil
+	return []model.Equipment{{ID: "machine-test", Name: "Фрезерный станок для теста"}}, nil
 }
 
 func (repository *workspaceTestRepository) ListCompanyUsers(context.Context, string) ([]application.CompanyUserRecord, error) {
@@ -73,7 +73,7 @@ func (*workspaceTestRepository) SaveCompanyEconomics(context.Context, model.Comp
 }
 
 func (*workspaceTestRepository) ListEquipmentEconomics(context.Context, string) ([]model.EquipmentEconomics, error) {
-	return nil, nil
+	return []model.EquipmentEconomics{{EquipmentID: "machine-test"}}, nil
 }
 
 func (*workspaceTestRepository) GetEquipmentEconomics(context.Context, string, string) (*model.EquipmentEconomics, error) {
@@ -174,6 +174,9 @@ func TestAuthenticatedWorkspacePagesRenderWithoutJSONStore(t *testing.T) {
 			}
 			if !strings.Contains(response.Body.String(), "Workspace owner") {
 				t.Fatalf("GET %s did not render the authenticated workspace", path)
+			}
+			if path == "/economics" && !strings.Contains(response.Body.String(), "<td>Фрезерный станок для теста</td>") {
+				t.Fatal("equipment economics table did not show the equipment name")
 			}
 		})
 	}
